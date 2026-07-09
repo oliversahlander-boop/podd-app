@@ -2,18 +2,20 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
+  BarChart3,
+  Bell,
   CalendarDays,
   CheckCircle2,
   Clock3,
+  FileAudio,
   FileText,
-  LinkIcon,
+  Flame,
   Plus,
-  Settings,
-  Users,
+  Upload,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -26,28 +28,45 @@ type Podcast = {
 type Episode = {
   id: string;
   title: string;
+  description: string | null;
   status: string | null;
   created_at: string;
   links: string | null;
   notes: string | null;
+  recording_date: string | null;
+  publish_date: string | null;
 };
 
-type Member = {
-  email: string;
-  role: string;
-  user_id: string;
+type Notification = {
+  body: string | null;
+  created_at: string;
+  id: string;
+  target_url: string | null;
+  title: string;
+  type: string;
 };
 
-type MaterialItem = {
-  episodeId: string;
-  episodeTitle: string;
-  name: string;
-  type: "file" | "link";
-  url: string;
+type ProductionFile = {
+  category: string;
+  content_type: string | null;
+  created_at: string;
+  episode_id: string;
+  filename: string;
+  id: string;
+  public_url: string;
+  size_bytes: number;
 };
 
-const filePrefix = "file|";
 const thumbnailPrefix = "thumbnail|";
+const productionStages = [
+  "Idea",
+  "Research",
+  "Script",
+  "Recording",
+  "Editing",
+  "Approved",
+  "Published",
+];
 
 function getThumbnail(links: string | null) {
   return links
@@ -56,71 +75,112 @@ function getThumbnail(links: string | null) {
     ?.split("|")[1];
 }
 
-function getFileCount(links: string | null) {
-  return (
-    links
-      ?.split("\n")
-      .filter((line) => line.startsWith(filePrefix))
-      .length || 0
-  );
+function normalizeStage(status: string | null) {
+  if (status === "Idé") return "Idea";
+  if (status === "Manus") return "Script";
+  if (status === "Inspelning") return "Recording";
+  if (status === "Redigering") return "Editing";
+  if (status === "Klar för publicering") return "Approved";
+  if (status === "Publicerad") return "Published";
+  if (status && productionStages.includes(status)) return status;
+
+  return "Idea";
 }
 
-function getRecentMaterial(episodes: Episode[]) {
-  return episodes.flatMap((episode) =>
-    (episode.links || "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .filter((line) => !line.startsWith(thumbnailPrefix))
-      .map((line) => {
-        if (line.startsWith(filePrefix)) {
-          const [, url, name] = line.split("|");
+function stageLabel(stage: string) {
+  if (stage === "Idea") return "Idé";
+  if (stage === "Research") return "Research";
+  if (stage === "Script") return "Manus";
+  if (stage === "Recording") return "Inspelning";
+  if (stage === "Editing") return "Redigering";
+  if (stage === "Approved") return "Godkänt";
+  if (stage === "Published") return "Publicerat";
 
-          return {
-            episodeId: episode.id,
-            episodeTitle: episode.title,
-            name: name || "Fil",
-            type: "file" as const,
-            url,
-          };
-        }
+  return stage;
+}
 
-        return {
-          episodeId: episode.id,
-          episodeTitle: episode.title,
-          name: line.replace(/^https?:\/\//, "").split("/")[0] || "Länk",
-          type: "link" as const,
-          url: line,
-        };
-      }),
+function getProgress(status: string | null) {
+  const stageIndex = productionStages.indexOf(normalizeStage(status));
+
+  if (stageIndex < 0) {
+    return 0;
+  }
+
+  return Math.round(((stageIndex + 1) / productionStages.length) * 100);
+}
+
+function formatDate(date: string | null) {
+  if (!date) {
+    return "Inget datum";
+  }
+
+  return new Intl.DateTimeFormat("sv-SE", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(date));
+}
+
+function formatRelativeDate(date: string) {
+  const days = Math.ceil(
+    (new Date(date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24),
   );
+
+  if (days < 0) {
+    return "Försenad";
+  }
+
+  if (days === 0) {
+    return "Idag";
+  }
+
+  if (days === 1) {
+    return "Imorgon";
+  }
+
+  return `Om ${days} dagar`;
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function statusTone(status: string | null) {
-  if (status === "Publicerad") {
+  const stage = normalizeStage(status);
+
+  if (stage === "Published") {
     return "bg-[#1DB954] text-black";
   }
 
-  if (status === "Klar för publicering") {
+  if (stage === "Approved") {
     return "bg-[#1DB954]/20 text-[#1DB954]";
   }
 
   return "bg-zinc-800 text-zinc-300";
 }
 
-function roleLabel(role: string) {
-  if (role === "owner") return "Ägare";
-  if (role === "admin") return "Administratör";
-  if (role === "editor") return "Redaktör";
+function getCategoryLabel(category: string) {
+  if (category === "raw") return "Råinspelning";
+  if (category === "edited") return "Redigerad version";
+  if (category === "final") return "Slutfil";
 
-  return "Läsbehörighet";
+  return "Produktionsfil";
 }
 
 export default function Home() {
   const [activePodcastId, setActivePodcastId] = useState("");
   const [podcast, setPodcast] = useState<Podcast | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [productionFiles, setProductionFiles] = useState<ProductionFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -138,73 +198,193 @@ export default function Home() {
     };
   }, []);
 
+  const loadOverview = useCallback(async (showLoading = true) => {
+    if (!activePodcastId) {
+      setPodcast(null);
+      setEpisodes([]);
+      setNotifications([]);
+      setProductionFiles([]);
+      setIsLoading(false);
+      return;
+    }
+
+    if (showLoading) {
+      setIsLoading(true);
+    }
+
+    const [
+      { data: podcastData, error: podcastError },
+      { data: episodeData, error: episodeError },
+      { data: notificationData, error: notificationError },
+      { data: productionFileData, error: productionFileError },
+    ] = await Promise.all([
+      supabase
+        .from("podcasts")
+        .select("id,name,thumbnail_url")
+        .eq("id", activePodcastId)
+        .maybeSingle(),
+      supabase
+        .from("episodes")
+        .select(
+          "id,title,description,status,created_at,links,notes,recording_date,publish_date",
+        )
+        .eq("podcast_id", activePodcastId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("notifications")
+        .select("id,type,title,body,target_url,created_at")
+        .eq("podcast_id", activePodcastId)
+        .order("created_at", { ascending: false })
+        .limit(8),
+      supabase
+        .from("production_files")
+        .select(
+          "id,episode_id,category,filename,public_url,content_type,size_bytes,created_at",
+        )
+        .eq("podcast_id", activePodcastId)
+        .order("created_at", { ascending: false })
+        .limit(8),
+    ]);
+
+    if (podcastError) {
+      console.error("Kunde inte hämta podcast:", podcastError);
+    }
+
+    if (episodeError) {
+      console.error("Kunde inte hämta avsnitt:", episodeError);
+    }
+
+    if (notificationError) {
+      console.error("Kunde inte hämta aktivitet:", notificationError);
+    }
+
+    if (productionFileError) {
+      console.error("Kunde inte hämta uppladdningar:", productionFileError);
+    }
+
+    setPodcast(podcastData);
+    setEpisodes((episodeData as Episode[] | null) || []);
+    setNotifications((notificationData as Notification[] | null) || []);
+    setProductionFiles((productionFileData as ProductionFile[] | null) || []);
+    setIsLoading(false);
+  }, [activePodcastId]);
+
   useEffect(() => {
     let isMounted = true;
 
-    async function loadOverview() {
-      if (!activePodcastId) {
-        setPodcast(null);
-        setEpisodes([]);
-        setMembers([]);
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-
-      const [
-        { data: podcastData },
-        { data: episodeData },
-        { data: memberData },
-      ] = await Promise.all([
-        supabase
-          .from("podcasts")
-          .select("id,name,thumbnail_url")
-          .eq("id", activePodcastId)
-          .single(),
-        supabase
-          .from("episodes")
-          .select("id,title,status,created_at,links,notes")
-          .eq("podcast_id", activePodcastId)
-          .order("created_at", { ascending: false }),
-        supabase.rpc("get_podcast_members", {
-          target_podcast_id: activePodcastId,
-        }),
-      ]);
-
-      if (!isMounted) {
-        return;
-      }
-
-      setPodcast(podcastData);
-      setEpisodes((episodeData as Episode[] | null) || []);
-      setMembers((memberData as Member[] | null) || []);
-      setIsLoading(false);
+    async function guardedLoadOverview() {
+      await loadOverview();
     }
 
-    loadOverview();
+    if (isMounted) {
+      void Promise.resolve().then(guardedLoadOverview);
+    }
 
     return () => {
       isMounted = false;
     };
-  }, [activePodcastId]);
+  }, [loadOverview]);
+
+  useEffect(() => {
+    if (!activePodcastId) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`dashboard:${activePodcastId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          filter: `podcast_id=eq.${activePodcastId}`,
+          schema: "public",
+          table: "episodes",
+        },
+        () => {
+          loadOverview(false);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          filter: `podcast_id=eq.${activePodcastId}`,
+          schema: "public",
+          table: "notifications",
+        },
+        () => {
+          loadOverview(false);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          filter: `podcast_id=eq.${activePodcastId}`,
+          schema: "public",
+          table: "production_files",
+        },
+        () => {
+          loadOverview(false);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activePodcastId, loadOverview]);
 
   const latestEpisodes = episodes.slice(0, 5);
   const continueEpisodes = episodes
-    .filter((episode) => episode.status !== "Publicerad")
-    .slice(0, 3);
-  const recentMaterial = useMemo(
-    () => getRecentMaterial(episodes).slice(0, 4),
-    [episodes],
-  );
-  const fileCount = useMemo(
+    .filter((episode) => normalizeStage(episode.status) !== "Published")
+    .sort((first, second) => getProgress(second.status) - getProgress(first.status))
+    .slice(0, 4);
+  const upcomingDeadlines = useMemo(
     () =>
-      episodes.reduce((total, episode) => total + getFileCount(episode.links), 0),
+      episodes
+        .flatMap((episode) => [
+          {
+            date: episode.recording_date,
+            episodeId: episode.id,
+            episodeTitle: episode.title,
+            label: "Inspelning",
+          },
+          {
+            date: episode.publish_date,
+            episodeId: episode.id,
+            episodeTitle: episode.title,
+            label: "Publicering",
+          },
+        ])
+        .filter((deadline) => deadline.date)
+        .sort(
+          (first, second) =>
+            new Date(first.date || "").getTime() -
+            new Date(second.date || "").getTime(),
+        )
+        .slice(0, 5),
     [episodes],
   );
+  const averageProgress =
+    episodes.length === 0
+      ? 0
+      : Math.round(
+          episodes.reduce(
+            (total, episode) => total + getProgress(episode.status),
+            0,
+          ) / episodes.length,
+        );
   const publishedCount = episodes.filter(
-    (episode) => episode.status === "Publicerad",
+    (episode) => normalizeStage(episode.status) === "Published",
   ).length;
+  const inProductionCount = episodes.filter(
+    (episode) => normalizeStage(episode.status) !== "Published",
+  ).length;
+  const totalFileSize = productionFiles.reduce(
+    (total, file) => total + file.size_bytes,
+    0,
+  );
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
@@ -232,7 +412,8 @@ export default function Home() {
                   {podcast?.name || "Podd"}
                 </h1>
                 <p className="mt-4 max-w-2xl text-sm leading-6 text-zinc-400">
-                  Överblick över produktion, material och nästa steg.
+                  En levande överblick över produktion, deadlines och
+                  uppladdningar.
                 </p>
               </div>
             </div>
@@ -240,14 +421,16 @@ export default function Home() {
             <div className="grid grid-cols-3 gap-2 sm:min-w-96 sm:gap-3">
               {[
                 ["Avsnitt", episodes.length],
-                ["Publicerade", publishedCount],
-                ["Material", fileCount],
+                ["Progress", `${averageProgress}%`],
+                ["Filer", productionFiles.length],
               ].map(([label, value]) => (
                 <div
                   className="rounded-xl bg-[#181818] p-3 ring-1 ring-zinc-900 sm:p-4"
                   key={label}
                 >
-                  <p className="text-xl font-semibold text-white sm:text-2xl">{value}</p>
+                  <p className="text-xl font-semibold text-white sm:text-2xl">
+                    {value}
+                  </p>
                   <p className="mt-1 text-xs font-medium text-zinc-500">
                     {label}
                   </p>
@@ -259,7 +442,7 @@ export default function Home() {
 
         {isLoading ? (
           <section className="grid gap-6 lg:grid-cols-3">
-            {[0, 1, 2].map((item) => (
+            {[0, 1, 2, 3, 4, 5].map((item) => (
               <div
                 className="h-48 animate-pulse rounded-2xl bg-[#111111]"
                 key={item}
@@ -272,7 +455,7 @@ export default function Home() {
               <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                    Fortsätt arbeta
+                    Continue Working
                   </h2>
                   <Clock3 className="text-zinc-500" size={20} />
                 </div>
@@ -299,14 +482,16 @@ export default function Home() {
                         <span className="block truncate text-sm font-semibold text-white">
                           {episode.title}
                         </span>
-                        <span className="mt-1 block text-xs text-zinc-500">
-                          {episode.status || "Idé"}
+                        <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-[#111111]">
+                          <span
+                            className="block h-full rounded-full bg-[#1DB954]"
+                            style={{ width: `${getProgress(episode.status)}%` }}
+                          />
                         </span>
                       </span>
-                      <ArrowRight
-                        className="text-zinc-600 transition group-hover:text-white"
-                        size={18}
-                      />
+                      <span className="text-xs font-bold text-zinc-500">
+                        {getProgress(episode.status)}%
+                      </span>
                     </Link>
                   ))}
                 </div>
@@ -319,23 +504,147 @@ export default function Home() {
               </div>
 
               <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-                <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                  Senaste aktivitet
-                </h2>
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-xl font-semibold text-white sm:text-2xl">
+                    Recent Activity
+                  </h2>
+                  <Bell className="text-zinc-500" size={20} />
+                </div>
                 <div className="mt-6 space-y-4">
-                  {latestEpisodes.slice(0, 4).map((episode) => (
-                    <div className="flex gap-3" key={episode.id}>
+                  {notifications.map((notification) => (
+                    <Link
+                      className="flex gap-3 rounded-xl p-2 transition hover:bg-[#181818]"
+                      href={notification.target_url || "/"}
+                      key={notification.id}
+                    >
                       <span className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-full bg-[#181818] text-[#1DB954]">
                         <CheckCircle2 size={16} />
                       </span>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-white">
-                          {episode.title}
-                        </p>
-                        <p className="mt-1 text-xs text-zinc-500">
-                          Status: {episode.status || "Idé"}
-                        </p>
-                      </div>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-white">
+                          {notification.title}
+                        </span>
+                        <span className="mt-1 block truncate text-xs text-zinc-500">
+                          {notification.body || formatDate(notification.created_at)}
+                        </span>
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+
+                {notifications.length === 0 ? (
+                  <p className="mt-6 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
+                    Ingen aktivitet ännu.
+                  </p>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="grid gap-6 lg:grid-cols-3">
+              <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-xl font-semibold text-white sm:text-2xl">
+                    Upcoming Deadlines
+                  </h2>
+                  <CalendarDays className="text-zinc-500" size={20} />
+                </div>
+
+                <div className="mt-6 grid gap-3">
+                  {upcomingDeadlines.map((deadline) => (
+                    <Link
+                      className="flex items-center justify-between gap-4 rounded-xl bg-[#181818] p-4 transition hover:bg-[#202020]"
+                      href={`/episodes/${deadline.episodeId}`}
+                      key={`${deadline.episodeId}-${deadline.label}-${deadline.date}`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-white">
+                          {deadline.episodeTitle}
+                        </span>
+                        <span className="mt-1 block text-xs text-zinc-500">
+                          {deadline.label} · {formatDate(deadline.date)}
+                        </span>
+                      </span>
+                      <span className="shrink-0 rounded-full bg-[#111111] px-3 py-1 text-xs font-bold text-[#1DB954]">
+                        {formatRelativeDate(deadline.date || "")}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+
+                {upcomingDeadlines.length === 0 ? (
+                  <p className="mt-6 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
+                    Inga deadlines planerade.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-xl font-semibold text-white sm:text-2xl">
+                    Latest Uploads
+                  </h2>
+                  <Upload className="text-zinc-500" size={20} />
+                </div>
+
+                <div className="mt-6 grid gap-3">
+                  {productionFiles.slice(0, 5).map((file) => (
+                    <a
+                      className="flex items-center justify-between gap-4 rounded-xl bg-[#181818] p-4 transition hover:bg-[#202020]"
+                      href={file.public_url}
+                      key={file.id}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#111111] text-[#1DB954]">
+                          <FileAudio size={18} />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-white">
+                            {file.filename}
+                          </span>
+                          <span className="mt-1 block truncate text-xs text-zinc-500">
+                            {getCategoryLabel(file.category)} ·{" "}
+                            {formatFileSize(file.size_bytes)}
+                          </span>
+                        </span>
+                      </span>
+                      <ArrowRight className="shrink-0 text-zinc-500" size={18} />
+                    </a>
+                  ))}
+                </div>
+
+                {productionFiles.length === 0 ? (
+                  <p className="mt-6 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
+                    Inga uppladdningar ännu.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-xl font-semibold text-white sm:text-2xl">
+                    Production Statistics
+                  </h2>
+                  <BarChart3 className="text-zinc-500" size={20} />
+                </div>
+
+                <div className="mt-6 grid gap-3">
+                  {[
+                    ["Pågående", inProductionCount],
+                    ["Publicerade", publishedCount],
+                    ["Total filstorlek", formatFileSize(totalFileSize)],
+                  ].map(([label, value]) => (
+                    <div
+                      className="rounded-xl bg-[#181818] p-4"
+                      key={label}
+                    >
+                      <p className="text-2xl font-semibold text-white">
+                        {value}
+                      </p>
+                      <p className="mt-1 text-xs font-medium text-zinc-500">
+                        {label}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -345,7 +654,7 @@ export default function Home() {
             <section>
               <div className="mb-5 flex items-center justify-between gap-4">
                 <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                  Senaste avsnitt
+                  Episode Progress
                 </h2>
                 <Link
                   className="text-sm font-bold text-[#1DB954] transition hover:text-[#22d760]"
@@ -376,28 +685,48 @@ export default function Home() {
                     <h3 className="mt-4 truncate text-sm font-semibold text-white">
                       {episode.title}
                     </h3>
-                    <span
-                      className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${statusTone(
-                        episode.status,
-                      )}`}
-                    >
-                      {episode.status || "Idé"}
-                    </span>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#111111]">
+                      <span
+                        className="block h-full rounded-full bg-[#1DB954]"
+                        style={{ width: `${getProgress(episode.status)}%` }}
+                      />
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${statusTone(
+                          episode.status,
+                        )}`}
+                      >
+                        {stageLabel(normalizeStage(episode.status))}
+                      </span>
+                      <span className="text-xs font-bold text-zinc-500">
+                        {getProgress(episode.status)}%
+                      </span>
+                    </div>
                   </Link>
                 ))}
               </div>
+
+              {latestEpisodes.length === 0 ? (
+                <div className="rounded-2xl bg-[#111111] p-8 text-sm text-zinc-500 ring-1 ring-zinc-900">
+                  Inga avsnitt ännu.
+                </div>
+              ) : null}
             </section>
 
-            <section className="grid gap-6 lg:grid-cols-3">
+            <section className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
               <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-                <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                  Snabbåtgärder
-                </h2>
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-xl font-semibold text-white sm:text-2xl">
+                    Snabbstart
+                  </h2>
+                  <Flame className="text-zinc-500" size={20} />
+                </div>
+
                 <div className="mt-6 grid gap-3">
                   {[
                     ["Skapa avsnitt", "/episodes", Plus],
                     ["Gå till avsnitt", "/episodes", FileText],
-                    ["Inställningar", "/settings", Settings],
                   ].map(([label, href, Icon]) => (
                     <Link
                       className="flex items-center justify-between rounded-xl bg-[#181818] px-4 py-4 text-sm font-semibold text-white transition duration-200 hover:bg-[#202020]"
@@ -415,93 +744,31 @@ export default function Home() {
               </div>
 
               <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-                <h2 className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
-                  <Users size={22} />
-                  Medlemmar
+                <h2 className="text-xl font-semibold text-white sm:text-2xl">
+                  Produktionsfaser
                 </h2>
-                <div className="mt-6 space-y-3">
-                  {members.slice(0, 5).map((member) => (
-                    <div
-                      className="flex items-center gap-3 rounded-xl bg-[#181818] p-3"
-                      key={member.user_id}
-                    >
-                      <span className="flex size-9 items-center justify-center rounded-full bg-[#1DB954] text-sm font-bold text-black">
-                        {member.email.charAt(0).toUpperCase()}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-white">
-                          {member.email}
-                        </span>
-                        <span className="text-xs text-zinc-500">
-                          {roleLabel(member.role)}
-                        </span>
-                      </span>
-                    </div>
-                  ))}
+                <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                  {productionStages.map((stage) => {
+                    const count = episodes.filter(
+                      (episode) => normalizeStage(episode.status) === stage,
+                    ).length;
+
+                    return (
+                      <div
+                        className="rounded-xl bg-[#181818] p-4"
+                        key={stage}
+                      >
+                        <p className="text-sm font-semibold text-white">
+                          {stageLabel(stage)}
+                        </p>
+                        <p className="mt-2 text-2xl font-semibold text-[#1DB954]">
+                          {count}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-
-              <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-                <h2 className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
-                  <CalendarDays size={22} />
-                  Kommande uppgifter
-                </h2>
-                <div className="mt-6 space-y-3">
-                  {[
-                    "Välj nästa avsnitt att spela in",
-                    "Gå igenom material",
-                    "Uppdatera anteckningar",
-                  ].map((task) => (
-                    <div
-                      className="flex items-center gap-3 rounded-xl bg-[#181818] p-3 text-sm font-medium text-zinc-300"
-                      key={task}
-                    >
-                      <span className="size-2 rounded-full bg-[#1DB954]" />
-                      {task}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-              <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                Senast uppladdat material
-              </h2>
-              <div className="mt-5 grid gap-3 md:grid-cols-2">
-                {recentMaterial.map((item: MaterialItem) => (
-                  <a
-                    className="flex items-center justify-between gap-4 rounded-xl bg-[#181818] px-4 py-4 transition duration-200 hover:bg-[#202020]"
-                    href={item.url}
-                    key={`${item.episodeId}-${item.url}-${item.name}`}
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    <span className="flex min-w-0 items-center gap-3">
-                      {item.type === "file" ? (
-                        <FileText className="shrink-0 text-[#1DB954]" size={18} />
-                      ) : (
-                        <LinkIcon className="shrink-0 text-[#1DB954]" size={18} />
-                      )}
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-white">
-                          {item.name}
-                        </span>
-                        <span className="mt-1 block truncate text-xs text-zinc-500">
-                          {item.episodeTitle}
-                        </span>
-                      </span>
-                    </span>
-                    <ArrowRight className="shrink-0 text-zinc-500" size={18} />
-                  </a>
-                ))}
-              </div>
-
-              {recentMaterial.length === 0 ? (
-                <p className="mt-5 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
-                  Inget material uppladdat ännu.
-                </p>
-              ) : null}
             </section>
           </>
         )}

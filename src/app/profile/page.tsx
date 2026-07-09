@@ -4,7 +4,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Upload } from "lucide-react";
+import { Bell, Lock, LogOut, Mail, Palette, Upload } from "lucide-react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -12,7 +12,14 @@ type Profile = {
   id: string;
   avatar_url: string | null;
   display_name: string | null;
+  notification_settings: NotificationSettings | null;
   theme: string | null;
+};
+
+type NotificationSettings = {
+  email?: boolean;
+  product?: boolean;
+  team?: boolean;
 };
 
 export default function ProfilePage() {
@@ -21,6 +28,15 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [theme, setTheme] = useState("dark");
+  const [notificationSettings, setNotificationSettings] =
+    useState<NotificationSettings>({
+      email: true,
+      product: true,
+      team: true,
+    });
+  const [password, setPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -37,7 +53,7 @@ export default function ProfilePage() {
 
       const { data } = await supabase
         .from("profiles")
-        .select("id,display_name,avatar_url,theme")
+        .select("id,display_name,avatar_url,theme,notification_settings")
         .eq("id", userData.user.id)
         .maybeSingle();
 
@@ -45,6 +61,11 @@ export default function ProfilePage() {
       setProfile(nextProfile);
       setDisplayName(nextProfile?.display_name || "");
       setTheme(nextProfile?.theme || "dark");
+      setNotificationSettings({
+        email: nextProfile?.notification_settings?.email ?? true,
+        product: nextProfile?.notification_settings?.product ?? true,
+        team: nextProfile?.notification_settings?.team ?? true,
+      });
     }
 
     loadProfile();
@@ -67,10 +88,11 @@ export default function ProfilePage() {
         avatar_url: profile?.avatar_url || null,
         display_name: nextDisplayName || null,
         id: user.id,
+        notification_settings: notificationSettings,
         theme,
         updated_at: new Date().toISOString(),
       })
-      .select("id,display_name,avatar_url,theme")
+      .select("id,display_name,avatar_url,theme,notification_settings")
       .single();
 
     if (error) {
@@ -124,10 +146,11 @@ export default function ProfilePage() {
         avatar_url: publicUrlData.publicUrl,
         display_name: displayName.trim() || null,
         id: user.id,
+        notification_settings: notificationSettings,
         theme,
         updated_at: new Date().toISOString(),
       })
-      .select("id,display_name,avatar_url,theme")
+      .select("id,display_name,avatar_url,theme,notification_settings")
       .single();
 
     if (error) {
@@ -149,6 +172,38 @@ export default function ProfilePage() {
     }
 
     setIsUploading(false);
+  }
+
+  async function savePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!password || password !== passwordConfirm) {
+      setMessage("Lösenorden matchar inte.");
+      return;
+    }
+
+    setIsSavingPassword(true);
+    setMessage("");
+
+    const { error } = await supabase.auth.updateUser({ password });
+
+    if (error) {
+      console.error("Password update failed:", error);
+      setMessage(error.message);
+    } else {
+      setPassword("");
+      setPasswordConfirm("");
+      setMessage("Lösenord sparat.");
+    }
+
+    setIsSavingPassword(false);
+  }
+
+  function toggleNotificationSetting(key: keyof NotificationSettings) {
+    setNotificationSettings((currentSettings) => ({
+      ...currentSettings,
+      [key]: !currentSettings[key],
+    }));
   }
 
   async function signOut() {
@@ -179,7 +234,7 @@ export default function ProfilePage() {
 
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
-                Profil
+                Profilinställningar
               </p>
               <h1 className="mt-3 truncate text-2xl font-semibold tracking-tight text-white sm:text-6xl">
                 {label}
@@ -193,7 +248,9 @@ export default function ProfilePage() {
 
         <section className="grid gap-4 sm:gap-6 lg:grid-cols-[0.8fr_1.2fr]">
           <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-            <h2 className="text-xl font-semibold text-white sm:text-2xl">Profilbild</h2>
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">
+              Avatar
+            </h2>
             <p className="mt-2 text-sm leading-6 text-zinc-400">
               Används i toppmenyn och framtida teamvyer.
             </p>
@@ -213,7 +270,9 @@ export default function ProfilePage() {
           </article>
 
           <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-            <h2 className="text-xl font-semibold text-white sm:text-2xl">Information</h2>
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">
+              Användaruppgifter
+            </h2>
             <form className="mt-6 grid gap-4" onSubmit={saveProfile}>
               <label className="grid gap-2">
                 <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -229,7 +288,8 @@ export default function ProfilePage() {
               </label>
 
               <label className="grid gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                  <Mail size={14} />
                   E-post
                 </span>
                 <input
@@ -241,7 +301,8 @@ export default function ProfilePage() {
               </label>
 
               <label className="grid gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                  <Palette size={14} />
                   Tema
                 </span>
                 <select
@@ -252,26 +313,19 @@ export default function ProfilePage() {
                   <option className="bg-[#181818] text-white" value="dark">
                     Mörkt
                   </option>
+                  <option className="bg-[#181818] text-white" value="light">
+                    Ljust
+                  </option>
                 </select>
               </label>
 
-              <div className="flex flex-wrap gap-3">
-                <button
-                  className="rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition duration-200 hover:scale-[1.02] hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={isSaving || !user}
-                  type="submit"
-                >
-                  {isSaving ? "Sparar..." : "Spara profil"}
-                </button>
-                <button
-                  className="inline-flex items-center gap-2 rounded-full bg-[#181818] px-6 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition duration-200 hover:bg-[#202020] hover:text-white"
-                  onClick={signOut}
-                  type="button"
-                >
-                  <LogOut size={16} />
-                  Logga ut
-                </button>
-              </div>
+              <button
+                className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition duration-200 hover:scale-[1.02] hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSaving || !user}
+                type="submit"
+              >
+                {isSaving ? "Sparar..." : "Spara profil"}
+              </button>
             </form>
 
             {message ? (
@@ -281,6 +335,94 @@ export default function ProfilePage() {
             ) : null}
           </article>
         </section>
+
+        <section className="grid gap-4 sm:gap-6 lg:grid-cols-2">
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <h2 className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
+              <Lock size={22} />
+              Lösenord
+            </h2>
+            <form className="mt-6 grid gap-4" onSubmit={savePassword}>
+              <input
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
+                minLength={6}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Nytt lösenord"
+                type="password"
+                value={password}
+              />
+              <input
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
+                minLength={6}
+                onChange={(event) => setPasswordConfirm(event.target.value)}
+                placeholder="Bekräfta lösenord"
+                type="password"
+                value={passwordConfirm}
+              />
+              <button
+                className="w-fit rounded-full bg-[#181818] px-6 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition duration-200 hover:bg-[#202020] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSavingPassword || !user}
+                type="submit"
+              >
+                {isSavingPassword ? "Sparar..." : "Spara lösenord"}
+              </button>
+            </form>
+          </article>
+
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <h2 className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
+              <Bell size={22} />
+              Notisinställningar
+            </h2>
+            <form className="mt-6 grid gap-3" onSubmit={saveProfile}>
+              {[
+                ["team", "Teamaktivitet"],
+                ["email", "E-postnotiser"],
+                ["product", "Produktuppdateringar"],
+              ].map(([key, label]) => (
+                <button
+                  className="flex items-center justify-between rounded-xl bg-[#181818] p-4 text-left transition hover:bg-[#202020]"
+                  key={key}
+                  onClick={() =>
+                    toggleNotificationSetting(key as keyof NotificationSettings)
+                  }
+                  type="button"
+                >
+                  <span className="text-sm font-semibold text-white">
+                    {label}
+                  </span>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-bold ${
+                      notificationSettings[key as keyof NotificationSettings]
+                        ? "bg-[#1DB954] text-black"
+                        : "bg-[#111111] text-zinc-500"
+                    }`}
+                  >
+                    {notificationSettings[key as keyof NotificationSettings]
+                      ? "På"
+                      : "Av"}
+                  </span>
+                </button>
+              ))}
+              <button
+                className="mt-3 w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition duration-200 hover:scale-[1.02] hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSaving || !user}
+                type="submit"
+              >
+                {isSaving ? "Sparar..." : "Spara notiser"}
+              </button>
+            </form>
+          </article>
+        </section>
+
+        <button
+          className="inline-flex w-fit items-center gap-2 rounded-full bg-[#181818] px-6 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition duration-200 hover:bg-[#202020] hover:text-white"
+          onClick={signOut}
+          type="button"
+        >
+          <LogOut size={16} />
+          Logga ut
+        </button>
       </div>
     </main>
   );

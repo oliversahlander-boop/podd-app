@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { FormEvent, useEffect, useState } from "react";
-import { Trash2, Upload, Users } from "lucide-react";
+import { BarChart3, ShieldCheck, Trash2, Upload, Users } from "lucide-react";
 import { User } from "@supabase/supabase-js";
 import { createNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
@@ -12,6 +12,7 @@ type Podcast = {
   id: string;
   name: string;
   thumbnail_url: string | null;
+  publishing_defaults: PublishingDefaults | null;
 };
 
 type PodcastMember = {
@@ -21,10 +22,29 @@ type PodcastMember = {
   email: string;
 };
 
+type PublishingDefaults = {
+  spotify?: string;
+  tiktok?: string;
+  youtube?: string;
+};
+
+type ProductionFile = {
+  size_bytes: number;
+};
+
 const roleOptions = ["owner", "admin", "editor", "viewer"];
 
 function roleValue(role: string) {
   return role === "member" ? "viewer" : role;
+}
+
+function roleDatabaseValue(role: string) {
+  if (role === "Ägare") return "owner";
+  if (role === "Administratör") return "admin";
+  if (role === "Redaktör") return "editor";
+  if (role === "Läsbehörighet") return "viewer";
+
+  return roleValue(role);
 }
 
 function roleLabel(role: string) {
@@ -55,11 +75,26 @@ function roleTone(role: string) {
   return "bg-zinc-800 text-zinc-400";
 }
 
+function formatFileSize(size: number) {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function SettingsPage() {
   const [activePodcastId, setActivePodcastId] = useState("");
   const [podcast, setPodcast] = useState<Podcast | null>(null);
   const [podcastName, setPodcastName] = useState("");
+  const [publishingDefaults, setPublishingDefaults] =
+    useState<PublishingDefaults>({});
   const [members, setMembers] = useState<PodcastMember[]>([]);
+  const [storageUsage, setStorageUsage] = useState(0);
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [user, setUser] = useState<User | null>(null);
@@ -80,7 +115,7 @@ export default function SettingsPage() {
   async function fetchPodcast(podcastId: string) {
     const { data, error } = await supabase
       .from("podcasts")
-      .select("id,name,thumbnail_url")
+      .select("id,name,thumbnail_url,publishing_defaults")
       .eq("id", podcastId)
       .single();
 
@@ -91,6 +126,7 @@ export default function SettingsPage() {
 
     setPodcast(data);
     setPodcastName(data.name);
+    setPublishingDefaults(data.publishing_defaults || {});
   }
 
   async function fetchMembers(podcastId: string) {
@@ -106,6 +142,25 @@ export default function SettingsPage() {
     setMembers((data as PodcastMember[] | null) || []);
   }
 
+  async function fetchStorageUsage(podcastId: string) {
+    const { data, error } = await supabase
+      .from("production_files")
+      .select("size_bytes")
+      .eq("podcast_id", podcastId);
+
+    if (error) {
+      console.error("Storage usage fetch failed:", error);
+      return;
+    }
+
+    setStorageUsage(
+      ((data as ProductionFile[] | null) || []).reduce(
+        (total, file) => total + file.size_bytes,
+        0,
+      ),
+    );
+  }
+
   useEffect(() => {
     function loadActivePodcastId() {
       const podcastId = localStorage.getItem("activePodcastId") || "";
@@ -115,6 +170,7 @@ export default function SettingsPage() {
       if (podcastId) {
         fetchPodcast(podcastId);
         fetchMembers(podcastId);
+        fetchStorageUsage(podcastId);
       }
     }
 
@@ -145,7 +201,7 @@ export default function SettingsPage() {
       .from("podcasts")
       .update({ name: nextName })
       .eq("id", activePodcastId)
-      .select("id,name,thumbnail_url")
+      .select("id,name,thumbnail_url,publishing_defaults")
       .single();
 
     if (error) {
@@ -200,7 +256,7 @@ export default function SettingsPage() {
       .from("podcasts")
       .update({ thumbnail_url: publicUrlData.publicUrl })
       .eq("id", activePodcastId)
-      .select("id,name,thumbnail_url")
+      .select("id,name,thumbnail_url,publishing_defaults")
       .single();
 
     if (error) {
@@ -308,35 +364,186 @@ export default function SettingsPage() {
       return;
     }
 
+    const nextRoleValue = roleDatabaseValue(nextRole);
+    const updateInputs = {
+      podcast_id: activePodcastId,
+      user_id: member.user_id,
+      currentRole: member.role,
+      nextRole: nextRoleValue,
+    };
+    const currentUserRole = currentMember?.role || null;
+
     setMessage("");
 
-    const { error } = await supabase
+    const authResponse = await supabase.auth.getUser();
+    const currentRoleResponse = await supabase.rpc("current_podcast_role", {
+      target_podcast_id: activePodcastId,
+    });
+    const targetMemberResponse = await supabase
       .from("podcast_members")
-      .update({ role: nextRole })
+      .select("podcast_id,user_id,role")
       .eq("podcast_id", activePodcastId)
-      .eq("user_id", member.user_id);
+      .eq("user_id", member.user_id)
+      .maybeSingle();
+
+    console.log("Debug rolländring: start", {
+      authUserId: authResponse.data.user?.id || null,
+      authError: authResponse.error
+        ? {
+            code: authResponse.error.code,
+            message: authResponse.error.message,
+            name: authResponse.error.name,
+            status: authResponse.error.status,
+          }
+        : null,
+      currentUserIsAdmin: currentUserRole === "admin",
+      currentUserIsOwner: currentUserRole === "owner",
+      currentUserRole,
+      expectedPolicy: {
+        name: "Owners can update podcast member roles",
+        table: "podcast_members",
+        command: "UPDATE",
+        condition:
+          "user_id <> auth.uid() and public.current_podcast_role(podcast_id) = 'owner'",
+      },
+      inputs: updateInputs,
+      currentRoleResponse: {
+        data: currentRoleResponse.data,
+        error: currentRoleResponse.error
+          ? {
+              code: currentRoleResponse.error.code,
+              details: currentRoleResponse.error.details,
+              hint: currentRoleResponse.error.hint,
+              message: currentRoleResponse.error.message,
+            }
+          : null,
+        status: currentRoleResponse.status,
+        statusText: currentRoleResponse.statusText,
+      },
+      targetMemberResponse: {
+        data: targetMemberResponse.data,
+        error: targetMemberResponse.error
+          ? {
+              code: targetMemberResponse.error.code,
+              details: targetMemberResponse.error.details,
+              hint: targetMemberResponse.error.hint,
+              message: targetMemberResponse.error.message,
+            }
+          : null,
+        status: targetMemberResponse.status,
+        statusText: targetMemberResponse.statusText,
+      },
+    });
+
+    const updateResponse = await supabase
+      .from("podcast_members")
+      .update({ role: nextRoleValue }, { count: "exact" })
+      .eq("podcast_id", activePodcastId)
+      .eq("user_id", member.user_id)
+      .select("podcast_id,user_id,role")
+      .maybeSingle();
+
+    console.log("Debug rolländring: Supabase update response", {
+      count: updateResponse.count,
+      data: updateResponse.data,
+      error: updateResponse.error
+        ? {
+            code: updateResponse.error.code,
+            details: updateResponse.error.details,
+            hint: updateResponse.error.hint,
+            message: updateResponse.error.message,
+          }
+        : null,
+      inputs: updateInputs,
+      rlsMayHaveBlocked:
+        !updateResponse.error &&
+        !updateResponse.data &&
+        updateResponse.count === 0,
+      status: updateResponse.status,
+      statusText: updateResponse.statusText,
+      table: "podcast_members",
+      where: {
+        podcast_id: activePodcastId,
+        user_id: member.user_id,
+      },
+    });
+
+    const { count, error } = updateResponse;
 
     if (error) {
-      console.error("Member role update failed:", error);
-      setMessage(error.message);
+      console.error("Kunde inte spara roll:", {
+        activePodcastId,
+        data: updateResponse.data,
+        error: {
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          message: error.message,
+        },
+        member,
+        nextRole: nextRoleValue,
+        status: updateResponse.status,
+        statusText: updateResponse.statusText,
+      });
+      setMessage(`Kunde inte spara roll: ${error.message}`);
       return;
     }
 
-    setMembers((currentMembers) =>
-      currentMembers.map((currentMember) =>
-        currentMember.user_id === member.user_id
-          ? { ...currentMember, role: nextRole }
-          : currentMember,
-      ),
-    );
+    if (!updateResponse.data || count === 0) {
+      console.error("Ingen medlemsrad uppdaterades:", {
+        activePodcastId,
+        count,
+        currentUserIsAdmin: currentUserRole === "admin",
+        currentUserIsOwner: currentUserRole === "owner",
+        currentUserRole,
+        data: updateResponse.data,
+        inputs: updateInputs,
+        member,
+        nextRole: nextRoleValue,
+        rlsMayHaveBlocked: count === 0,
+        status: updateResponse.status,
+        statusText: updateResponse.statusText,
+      });
+      setMessage("Kunde inte spara roll. Ingen medlemsrad uppdaterades.");
+      return;
+    }
+
+    await fetchMembers(activePodcastId);
     setMessage("Roll sparad.");
     await createNotification({
-      body: `${member.email} är nu ${roleLabel(nextRole)}`,
+      body: `${member.email} är nu ${roleLabel(nextRoleValue)}`,
       podcastId: activePodcastId,
       targetUrl: "/settings",
       title: "Roll ändrad",
       type: "role_changed",
     });
+  }
+
+  async function savePublishingDefaults(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!activePodcastId || !canManagePodcast) {
+      return;
+    }
+
+    setMessage("");
+
+    const { data, error } = await supabase
+      .from("podcasts")
+      .update({ publishing_defaults: publishingDefaults })
+      .eq("id", activePodcastId)
+      .select("id,name,thumbnail_url,publishing_defaults")
+      .single();
+
+    if (error) {
+      console.error("Publishing defaults save failed:", error);
+      setMessage(error.message);
+      return;
+    }
+
+    setPodcast(data);
+    setPublishingDefaults(data.publishing_defaults || {});
+    setMessage("Publiceringsstandard sparad.");
   }
 
   async function leavePodcast() {
@@ -367,10 +574,10 @@ export default function SettingsPage() {
             Arbetsyta
           </p>
           <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white sm:text-6xl">
-            Inställningar
+            Podcastinställningar
           </h1>
           <p className="mt-4 text-sm text-zinc-400">
-            Hantera podcastens namn, omslagsbild, medlemmar och åtkomst.
+            Hantera endast podcastens namn, omslagsbild, team och produktion.
           </p>
         </header>
 
@@ -446,6 +653,81 @@ export default function SettingsPage() {
               </label>
             </section>
           </div>
+        </section>
+
+        <section className="grid gap-4 sm:gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <h2 className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
+              <BarChart3 size={22} />
+              Lagringsanvändning
+            </h2>
+            <div className="mt-6 rounded-xl bg-[#181818] p-5">
+              <p className="text-3xl font-semibold text-white">
+                {formatFileSize(storageUsage)}
+              </p>
+              <p className="mt-2 text-sm text-zinc-500">
+                Använt av produktionsfiler i den aktiva podcasten.
+              </p>
+            </div>
+          </article>
+
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">
+              Publiceringsstandard
+            </h2>
+            <form
+              className="mt-6 grid gap-4"
+              onSubmit={savePublishingDefaults}
+            >
+              <input
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10 disabled:opacity-60"
+                disabled={!canManagePodcast}
+                onChange={(event) =>
+                  setPublishingDefaults((currentDefaults) => ({
+                    ...currentDefaults,
+                    spotify: event.target.value,
+                  }))
+                }
+                placeholder="Standardlänk för Spotify"
+                type="url"
+                value={publishingDefaults.spotify || ""}
+              />
+              <input
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10 disabled:opacity-60"
+                disabled={!canManagePodcast}
+                onChange={(event) =>
+                  setPublishingDefaults((currentDefaults) => ({
+                    ...currentDefaults,
+                    youtube: event.target.value,
+                  }))
+                }
+                placeholder="Standardlänk för YouTube"
+                type="url"
+                value={publishingDefaults.youtube || ""}
+              />
+              <input
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10 disabled:opacity-60"
+                disabled={!canManagePodcast}
+                onChange={(event) =>
+                  setPublishingDefaults((currentDefaults) => ({
+                    ...currentDefaults,
+                    tiktok: event.target.value,
+                  }))
+                }
+                placeholder="Standardlänk för TikTok"
+                type="url"
+                value={publishingDefaults.tiktok || ""}
+              />
+              {canManagePodcast ? (
+                <button
+                  className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition duration-200 hover:scale-[1.02] hover:bg-[#22d760]"
+                  type="submit"
+                >
+                  Spara publiceringsstandard
+                </button>
+              ) : null}
+            </form>
+          </article>
         </section>
 
         <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
@@ -545,6 +827,34 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+          <h2 className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
+            <ShieldCheck size={22} />
+            Behörigheter
+          </h2>
+          <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              ["owner", "Kan göra allt, inklusive ta bort podcasten."],
+              ["admin", "Kan hantera podcast och team, men inte ta bort podcasten."],
+              ["editor", "Kan skapa och redigera avsnitt och material."],
+              ["viewer", "Kan bara läsa och lyssna."],
+            ].map(([role, description]) => (
+              <div className="rounded-xl bg-[#181818] p-4" key={role}>
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] ${roleTone(
+                    role,
+                  )}`}
+                >
+                  {roleLabel(role)}
+                </span>
+                <p className="mt-4 text-sm leading-6 text-zinc-400">
+                  {description}
+                </p>
               </div>
             ))}
           </div>

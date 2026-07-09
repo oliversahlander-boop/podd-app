@@ -62,6 +62,13 @@ type SearchMember = {
   user_id: string;
 };
 
+type SearchProductionFile = {
+  category: string;
+  episode_id: string;
+  filename: string;
+  id: string;
+};
+
 const filePrefix = "file|";
 
 function fileNameFromUrl(url: string) {
@@ -398,7 +405,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
         return;
       }
 
-      const [{ data: episodeData, error }, { data: memberData }] =
+      const [
+        { data: episodeData, error },
+        { data: memberData },
+        { data: productionFileData, error: productionFileError },
+      ] =
         await Promise.all([
           supabase
             .from("episodes")
@@ -407,10 +418,18 @@ export default function AppShell({ children }: { children: ReactNode }) {
           supabase.rpc("get_podcast_members", {
             target_podcast_id: activePodcastId,
           }),
+          supabase
+            .from("production_files")
+            .select("id,episode_id,filename,category")
+            .eq("podcast_id", activePodcastId),
         ]);
 
       if (error) {
         console.error("Kunde inte söka:", error);
+      }
+
+      if (productionFileError) {
+        console.error("Kunde inte söka produktionsfiler:", productionFileError);
       }
 
       if (!isMounted) {
@@ -482,6 +501,24 @@ export default function AppShell({ children }: { children: ReactNode }) {
           });
         }
       });
+
+      ((productionFileData as SearchProductionFile[] | null) || []).forEach(
+        (file) => {
+          const fileText = [file.filename, file.category]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+
+          if (fileText.includes(query)) {
+            results.push({
+              href: `/episodes/${file.episode_id}`,
+              id: `production-file-${file.id}`,
+              label: file.filename,
+              meta: "Produktionsfil",
+            });
+          }
+        },
+      );
 
       setSearchResults(results.slice(0, 8));
     }
