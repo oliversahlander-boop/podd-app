@@ -31,6 +31,54 @@ const statusOptions = [
   "Publicerad",
 ];
 
+function normalizeStage(status: string | null) {
+  if (status === "Idé") return "Idea";
+  if (status === "Manus") return "Script";
+  if (status === "Inspelning") return "Recording";
+  if (status === "Redigering") return "Editing";
+  if (status === "Klar för publicering") return "Approved";
+  if (status === "Godkänd") return "Approved";
+  if (status === "Publicerad") return "Published";
+  if (
+    status &&
+    ["Idea", "Research", "Script", "Recording", "Editing", "Approved", "Published"].includes(
+      status,
+    )
+  ) {
+    return status;
+  }
+
+  return "Idea";
+}
+
+function stageLabel(status: string | null) {
+  const stage = normalizeStage(status);
+
+  if (stage === "Idea") return "Idé";
+  if (stage === "Research") return "Research";
+  if (stage === "Script") return "Manus";
+  if (stage === "Recording") return "Inspelning";
+  if (stage === "Editing") return "Redigering";
+  if (stage === "Approved") return "Godkänt";
+  if (stage === "Published") return "Publicerat";
+
+  return "Idé";
+}
+
+function getProgress(status: string | null) {
+  const progressByStage: Record<string, number> = {
+    Approved: 90,
+    Editing: 75,
+    Idea: 10,
+    Published: 100,
+    Recording: 60,
+    Research: 25,
+    Script: 40,
+  };
+
+  return progressByStage[normalizeStage(status)] || 10;
+}
+
 function getThumbnail(links: string | null) {
   return links
     ?.split("\n")
@@ -48,11 +96,13 @@ function getFileCount(links: string | null) {
 }
 
 function statusTone(status: string | null) {
-  if (status === "Publicerad") {
+  const stage = normalizeStage(status);
+
+  if (stage === "Published") {
     return "bg-[#1DB954] text-black";
   }
 
-  if (status === "Klar för publicering") {
+  if (stage === "Approved") {
     return "bg-[#1DB954]/20 text-[#1DB954]";
   }
 
@@ -363,6 +413,7 @@ export default function EpisodesPage() {
             const thumbnail = getThumbnail(episode.links);
             const fileCount = getFileCount(episode.links);
             const noteCount = episode.notes?.trim() ? 1 : 0;
+            const progress = getProgress(episode.status);
 
             return (
               <article
@@ -468,8 +519,20 @@ export default function EpisodesPage() {
                           episode.status,
                         )}`}
                       >
-                        {episode.status || "Planering"}
+                        {stageLabel(episode.status)}
                       </span>
+                    </div>
+                    <div className="mt-3">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-[#111111]">
+                        <span
+                          className="block h-full rounded-full bg-[#1DB954]"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-zinc-500">
+                        <span>{stageLabel(episode.status)}</span>
+                        <span className="font-bold">{progress}%</span>
+                      </div>
                     </div>
 
                     <div className="mt-3 flex flex-col gap-1.5 border-t border-zinc-800/70 pt-3 text-[11px] text-zinc-500 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:text-xs">

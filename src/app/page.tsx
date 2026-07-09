@@ -38,12 +38,20 @@ type Episode = {
 };
 
 type Notification = {
+  actor_id: string | null;
   body: string | null;
   created_at: string;
   id: string;
   target_url: string | null;
   title: string;
   type: string;
+};
+
+type PodcastMember = {
+  display_name: string | null;
+  email: string;
+  role: string;
+  user_id: string;
 };
 
 type ProductionFile = {
@@ -81,6 +89,7 @@ function normalizeStage(status: string | null) {
   if (status === "Inspelning") return "Recording";
   if (status === "Redigering") return "Editing";
   if (status === "Klar för publicering") return "Approved";
+  if (status === "Godkänd") return "Approved";
   if (status === "Publicerad") return "Published";
   if (status && productionStages.includes(status)) return status;
 
@@ -100,13 +109,17 @@ function stageLabel(stage: string) {
 }
 
 function getProgress(status: string | null) {
-  const stageIndex = productionStages.indexOf(normalizeStage(status));
+  const progressByStage: Record<string, number> = {
+    Approved: 90,
+    Editing: 75,
+    Idea: 10,
+    Published: 100,
+    Recording: 60,
+    Research: 25,
+    Script: 40,
+  };
 
-  if (stageIndex < 0) {
-    return 0;
-  }
-
-  return Math.round(((stageIndex + 1) / productionStages.length) * 100);
+  return progressByStage[normalizeStage(status)] || 10;
 }
 
 function formatDate(date: string | null) {
@@ -139,6 +152,28 @@ function formatRelativeDate(date: string) {
   }
 
   return `Om ${days} dagar`;
+}
+
+function formatEventTime(date: string) {
+  const minutes = Math.round(
+    (new Date().getTime() - new Date(date).getTime()) / (1000 * 60),
+  );
+
+  if (minutes < 1) {
+    return "Nyss";
+  }
+
+  if (minutes < 60) {
+    return `${minutes} min sedan`;
+  }
+
+  const hours = Math.round(minutes / 60);
+
+  if (hours < 24) {
+    return `${hours} tim sedan`;
+  }
+
+  return formatDate(date);
 }
 
 function formatFileSize(size: number) {
@@ -175,11 +210,44 @@ function getCategoryLabel(category: string) {
   return "Produktionsfil";
 }
 
+function getEventAction(notification: Notification) {
+  if (notification.type === "episode_created") return "skapade ett avsnitt";
+  if (notification.type === "member_added") return "lade till en medlem";
+  if (notification.type === "role_changed") return "ändrade en roll";
+
+  if (notification.type === "episode_updated") {
+    return notification.title === "Steg ändrat"
+      ? "ändrade ett steg"
+      : "uppdaterade ett avsnitt";
+  }
+
+  if (notification.type === "material_uploaded") {
+    return notification.title === "Produktionsfil uppladdad"
+      ? "laddade upp en fil"
+      : "lade till material";
+  }
+
+  if (notification.type === "material_deleted") return "tog bort material";
+
+  return notification.title.toLowerCase();
+}
+
+function isImportantEvent(notification: Notification) {
+  return [
+    "episode_created",
+    "episode_updated",
+    "material_uploaded",
+    "member_added",
+    "role_changed",
+  ].includes(notification.type);
+}
+
 export default function Home() {
   const [activePodcastId, setActivePodcastId] = useState("");
   const [podcast, setPodcast] = useState<Podcast | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [members, setMembers] = useState<PodcastMember[]>([]);
   const [productionFiles, setProductionFiles] = useState<ProductionFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -203,6 +271,7 @@ export default function Home() {
       setPodcast(null);
       setEpisodes([]);
       setNotifications([]);
+      setMembers([]);
       setProductionFiles([]);
       setIsLoading(false);
       return;
@@ -216,6 +285,7 @@ export default function Home() {
       { data: podcastData, error: podcastError },
       { data: episodeData, error: episodeError },
       { data: notificationData, error: notificationError },
+      { data: memberData, error: memberError },
       { data: productionFileData, error: productionFileError },
     ] = await Promise.all([
       supabase
@@ -232,10 +302,13 @@ export default function Home() {
         .order("created_at", { ascending: false }),
       supabase
         .from("notifications")
-        .select("id,type,title,body,target_url,created_at")
+        .select("id,type,title,body,target_url,actor_id,created_at")
         .eq("podcast_id", activePodcastId)
         .order("created_at", { ascending: false })
-        .limit(8),
+        .limit(12),
+      supabase.rpc("get_podcast_members", {
+        target_podcast_id: activePodcastId,
+      }),
       supabase
         .from("production_files")
         .select(
@@ -258,6 +331,10 @@ export default function Home() {
       console.error("Kunde inte hämta aktivitet:", notificationError);
     }
 
+    if (memberError) {
+      console.error("Kunde inte hämta medlemmar:", memberError);
+    }
+
     if (productionFileError) {
       console.error("Kunde inte hämta uppladdningar:", productionFileError);
     }
@@ -265,6 +342,7 @@ export default function Home() {
     setPodcast(podcastData);
     setEpisodes((episodeData as Episode[] | null) || []);
     setNotifications((notificationData as Notification[] | null) || []);
+    setMembers((memberData as PodcastMember[] | null) || []);
     setProductionFiles((productionFileData as ProductionFile[] | null) || []);
     setIsLoading(false);
   }, [activePodcastId]);
@@ -336,6 +414,21 @@ export default function Home() {
   }, [activePodcastId, loadOverview]);
 
   const latestEpisodes = episodes.slice(0, 5);
+  const recentEvents = notifications
+    .filter(isImportantEvent)
+    .slice(0, 7)
+    .map((notification) => {
+      const actor = members.find(
+        (member) => member.user_id === notification.actor_id,
+      );
+
+      return {
+        ...notification,
+        actorName:
+          actor?.display_name || actor?.email || "En teammedlem",
+        action: getEventAction(notification),
+      };
+    });
   const continueEpisodes = episodes
     .filter((episode) => normalizeStage(episode.status) !== "Published")
     .sort((first, second) => getProgress(second.status) - getProgress(first.status))
@@ -506,12 +599,12 @@ export default function Home() {
               <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                    Recent Activity
+                    Senaste händelser
                   </h2>
                   <Bell className="text-zinc-500" size={20} />
                 </div>
                 <div className="mt-6 space-y-4">
-                  {notifications.map((notification) => (
+                  {recentEvents.map((notification) => (
                     <Link
                       className="flex gap-3 rounded-xl p-2 transition hover:bg-[#181818]"
                       href={notification.target_url || "/"}
@@ -522,19 +615,23 @@ export default function Home() {
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium text-white">
-                          {notification.title}
+                          {notification.actorName} {notification.action}
                         </span>
                         <span className="mt-1 block truncate text-xs text-zinc-500">
-                          {notification.body || formatDate(notification.created_at)}
+                          {notification.body
+                            ? `${notification.body} · ${formatEventTime(
+                                notification.created_at,
+                              )}`
+                            : formatEventTime(notification.created_at)}
                         </span>
                       </span>
                     </Link>
                   ))}
                 </div>
 
-                {notifications.length === 0 ? (
+                {recentEvents.length === 0 ? (
                   <p className="mt-6 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
-                    Ingen aktivitet ännu.
+                    Inga viktiga händelser ännu.
                   </p>
                 ) : null}
               </div>
