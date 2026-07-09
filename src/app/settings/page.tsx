@@ -22,12 +22,22 @@ type PodcastMember = {
 
 const roleOptions = ["owner", "admin", "editor", "viewer"];
 
-function roleLabel(role: string) {
+function roleValue(role: string) {
   return role === "member" ? "viewer" : role;
 }
 
+function roleLabel(role: string) {
+  const normalizedRole = roleValue(role);
+
+  if (normalizedRole === "owner") return "Ägare";
+  if (normalizedRole === "admin") return "Administratör";
+  if (normalizedRole === "editor") return "Redaktör";
+
+  return "Läsbehörighet";
+}
+
 function roleTone(role: string) {
-  const normalizedRole = roleLabel(role);
+  const normalizedRole = roleValue(role);
 
   if (normalizedRole === "owner") {
     return "bg-[#1DB954] text-black";
@@ -63,7 +73,7 @@ export default function SettingsPage() {
   const isOwner = currentMember?.role === "owner";
   const canManagePodcast =
     currentMember?.role === "owner" || currentMember?.role === "admin";
-  const canManageMembers =
+  const canAddMembers =
     currentMember?.role === "owner" || currentMember?.role === "admin";
 
   async function fetchPodcast(podcastId: string) {
@@ -232,7 +242,7 @@ export default function SettingsPage() {
   async function addMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!activePodcastId || !email.trim() || !canManageMembers) {
+    if (!activePodcastId || !email.trim() || !canAddMembers) {
       return;
     }
 
@@ -259,8 +269,7 @@ export default function SettingsPage() {
     if (
       !activePodcastId ||
       member.user_id === user?.id ||
-      !canManageMembers ||
-      (member.role === "owner" && !isOwner)
+      !isOwner
     ) {
       return;
     }
@@ -329,17 +338,17 @@ export default function SettingsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] px-6 py-10 text-zinc-100 sm:px-10 lg:px-14">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+    <main className="min-h-screen bg-[#050505] px-4 py-6 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 sm:gap-8">
         <header className="border-b border-zinc-900 pb-8">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
-            Workspace
+            Arbetsyta
           </p>
-          <h1 className="mt-4 text-5xl font-semibold tracking-tight text-white sm:text-6xl">
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-6xl">
             Inställningar
           </h1>
           <p className="mt-4 text-sm text-zinc-400">
-            Hantera podcastens namn, artwork, medlemmar och åtkomst.
+            Hantera podcastens namn, omslagsbild, medlemmar och åtkomst.
           </p>
         </header>
 
@@ -349,16 +358,16 @@ export default function SettingsPage() {
           </p>
         ) : null}
 
-        <section className="grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
-          <aside className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+        <section className="grid gap-4 sm:gap-6 lg:grid-cols-[0.75fr_1.25fr]">
+          <aside className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
             {podcast?.thumbnail_url ? (
               <img
                 alt=""
-                className="aspect-square w-full rounded-2xl object-cover shadow-2xl shadow-black/40"
+                className="mx-auto aspect-square w-full max-w-64 rounded-2xl object-cover shadow-2xl shadow-black/40 lg:max-w-none"
                 src={podcast.thumbnail_url}
               />
             ) : (
-              <div className="flex aspect-square w-full items-center justify-center rounded-2xl bg-[#181818] text-6xl font-bold text-zinc-400">
+              <div className="mx-auto flex aspect-square w-full max-w-64 items-center justify-center rounded-2xl bg-[#181818] text-5xl font-bold text-zinc-400 lg:max-w-none lg:text-6xl">
                 {(podcast?.name || "P").charAt(0).toUpperCase()}
               </div>
             )}
@@ -366,13 +375,13 @@ export default function SettingsPage() {
               {podcast?.name || "Podcast"}
             </h2>
             <p className="mt-2 text-sm text-zinc-500">
-              Owner: {owner?.email || "Okänd"}
+              Ägare: {owner?.email || "Okänd"}
             </p>
           </aside>
 
           <div className="grid gap-6">
-            <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-              <h2 className="text-2xl font-semibold text-white">General</h2>
+            <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+              <h2 className="text-xl font-semibold text-white sm:text-2xl">Allmänt</h2>
               <form
                 className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]"
                 onSubmit={renamePodcast}
@@ -395,8 +404,8 @@ export default function SettingsPage() {
               </form>
             </section>
 
-            <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-              <h2 className="text-2xl font-semibold text-white">Artwork</h2>
+            <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+              <h2 className="text-xl font-semibold text-white sm:text-2xl">Omslagsbild</h2>
               <p className="mt-2 text-sm leading-6 text-zinc-400">
                 Visas på startsidan och i podcast-listan.
               </p>
@@ -417,12 +426,12 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+        <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
-                <Users size={22} />
-                Members
+                <Users size={20} />
+                Medlemmar
               </h2>
               <p className="mt-2 text-sm text-zinc-400">
                 Lägg till och hantera teamet.
@@ -439,7 +448,7 @@ export default function SettingsPage() {
             ) : null}
           </div>
 
-          {canManageMembers ? (
+          {canAddMembers ? (
             <form
               className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]"
               onSubmit={addMember}
@@ -461,10 +470,10 @@ export default function SettingsPage() {
             </form>
           ) : null}
 
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
+          <div className="mt-6 grid gap-3 lg:grid-cols-2">
             {members.map((member) => (
               <div
-                className="flex items-center justify-between gap-4 rounded-xl bg-[#181818] p-4"
+                className="flex flex-col gap-4 rounded-xl bg-[#181818] p-4 sm:flex-row sm:items-center sm:justify-between"
                 key={member.user_id}
               >
                 <div className="flex min-w-0 items-center gap-3">
@@ -484,28 +493,29 @@ export default function SettingsPage() {
                     </span>
                   </div>
                 </div>
-                {canManageMembers ? (
+                {isOwner ? (
                   <div className="flex shrink-0 items-center gap-2">
                     <select
                       className="rounded-full border border-zinc-800 bg-[#111111] px-3 py-2 text-xs font-bold text-zinc-200 outline-none transition focus:border-[#1DB954] disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={!isOwner || member.user_id === user?.id}
+                      disabled={member.user_id === user?.id}
                       onChange={(event) =>
                         updateMemberRole(member, event.target.value)
                       }
-                      value={roleLabel(member.role)}
+                      value={roleValue(member.role)}
                     >
                       {roleOptions.map((role) => (
-                        <option className="bg-[#111111] text-white" key={role}>
-                          {role}
+                        <option
+                          className="bg-[#111111] text-white"
+                          key={role}
+                          value={role}
+                        >
+                          {roleLabel(role)}
                         </option>
                       ))}
                     </select>
                     <button
                       className="rounded-full bg-[#111111] px-4 py-2 text-xs font-bold text-zinc-300 ring-1 ring-zinc-800 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={
-                        member.user_id === user?.id ||
-                        (member.role === "owner" && !isOwner)
-                      }
+                      disabled={member.user_id === user?.id}
                       onClick={() => removeMember(member)}
                       type="button"
                     >
@@ -518,17 +528,17 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-red-950/50">
+        <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-red-950/50 sm:p-6">
           <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
             <Trash2 size={22} />
-            Danger Zone
+            Riskzon
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
             Detta tar bort podcasten, alla medlemmar och alla avsnitt i
             podcasten.
           </p>
 
-          {showDeleteConfirm ? (
+          {isOwner && showDeleteConfirm ? (
             <div className="mt-6 rounded-xl bg-[#181818] p-5 ring-1 ring-red-900/40">
               <p className="text-sm font-medium text-white">
                 Är du säker på att du vill ta bort podcasten?
@@ -552,16 +562,15 @@ export default function SettingsPage() {
                 </button>
               </div>
             </div>
-          ) : (
+          ) : isOwner ? (
             <button
               className="mt-6 rounded-full bg-red-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!isOwner}
               onClick={() => setShowDeleteConfirm(true)}
               type="button"
             >
               Ta bort podcast
             </button>
-          )}
+          ) : null}
         </section>
       </div>
     </main>

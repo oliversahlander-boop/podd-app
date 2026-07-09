@@ -383,62 +383,62 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#050505]">
-      <aside className="hidden w-72 shrink-0 border-r border-zinc-900 bg-[#050505] px-5 py-6 lg:block">
+    <div className="flex min-h-screen flex-col bg-[#050505] lg:flex-row">
+      <aside className="w-full shrink-0 border-b border-zinc-900 bg-[#050505] px-4 py-4 lg:w-72 lg:border-b-0 lg:border-r lg:px-5 lg:py-6">
         <Link
-          className="block px-3 text-sm font-semibold tracking-[0.22em] text-[#1DB954] uppercase"
+          className="block px-2 text-xs font-semibold tracking-[0.22em] text-[#1DB954] uppercase lg:px-3 lg:text-sm"
           href="/"
         >
           Podd
         </Link>
 
-        <nav className="mt-8 flex flex-col gap-1.5">
+        <nav className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:mt-8 lg:flex-col lg:gap-1.5 lg:overflow-visible lg:pb-0">
           <Link
-            className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
+            className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition duration-200 lg:gap-3 lg:px-3.5 lg:py-3 lg:text-sm ${
               pathname === "/"
                 ? "bg-[#181818] text-white shadow-lg shadow-black/20"
                 : "text-zinc-300 hover:bg-[#111111] hover:text-white"
             }`}
             href="/"
           >
-            <Home size={18} strokeWidth={2} />
+            <Home size={16} strokeWidth={2} />
             Start
           </Link>
           <Link
-            className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
+            className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition duration-200 lg:gap-3 lg:px-3.5 lg:py-3 lg:text-sm ${
               pathname.startsWith("/episodes")
                 ? "bg-[#181818] text-white shadow-lg shadow-black/20"
                 : "text-zinc-300 hover:bg-[#111111] hover:text-white"
             }`}
             href="/episodes"
           >
-            <Library size={18} strokeWidth={2} />
+            <Library size={16} strokeWidth={2} />
             Avsnitt
           </Link>
           <Link
-            className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
+            className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition duration-200 lg:gap-3 lg:px-3.5 lg:py-3 lg:text-sm ${
               pathname === "/settings"
                 ? "bg-[#181818] text-white shadow-lg shadow-black/20"
                 : "text-zinc-300 hover:bg-[#111111] hover:text-white"
             }`}
             href="/settings"
           >
-            <Settings size={18} strokeWidth={2} />
+            <Settings size={16} strokeWidth={2} />
             Inställningar
           </Link>
         </nav>
 
-        <div className="mt-10">
-          <p className="px-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-600">
-            Podcasts
+        <div className="mt-4 lg:mt-10">
+          <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-600 lg:px-3 lg:text-xs">
+            Podcaster
           </p>
-          <div className="mt-3 flex flex-col gap-1.5">
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-1 lg:mt-3 lg:flex-col lg:gap-1.5 lg:overflow-visible lg:pb-0">
             {podcasts.map((podcast) => {
               const isActive = podcast.id === activePodcastId;
 
               return (
                 <button
-                  className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition duration-200 ${
+                  className={`group flex min-w-48 items-center gap-2 rounded-xl px-2.5 py-2 text-left transition duration-200 lg:min-w-0 lg:w-full lg:gap-3 lg:px-3 lg:py-2.5 ${
                     isActive
                       ? "bg-[#181818] text-white shadow-lg shadow-black/20"
                       : "text-zinc-400 hover:bg-[#111111] hover:text-white"
@@ -450,19 +450,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   {podcast.thumbnail_url ? (
                     <img
                       alt=""
-                      className="size-11 shrink-0 rounded-lg object-cover shadow-md shadow-black/30"
+                      className="size-9 shrink-0 rounded-lg object-cover shadow-md shadow-black/30 lg:size-11"
                       src={podcast.thumbnail_url}
                     />
                   ) : (
-                    <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[#181818] text-sm font-bold text-zinc-300 shadow-md shadow-black/30">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#181818] text-xs font-bold text-zinc-300 shadow-md shadow-black/30 lg:size-11 lg:text-sm">
                       {podcast.name.charAt(0).toUpperCase()}
                     </span>
                   )}
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold">
+                    <span className="block truncate text-xs font-semibold lg:text-sm">
                       {podcast.name}
                     </span>
-                    <span className="mt-0.5 block text-xs text-zinc-500">
+                    <span className="mt-0.5 block text-[11px] text-zinc-500 lg:text-xs">
                       {episodeCounts[podcast.id] || 0} avsnitt
                     </span>
                   </span>
@@ -471,16 +471,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
             })}
           </div>
 
-          <form className="mt-5 flex flex-col gap-2 px-1" onSubmit={createPodcast}>
+          <form className="mt-3 flex gap-2 px-1 lg:mt-5 lg:flex-col" onSubmit={createPodcast}>
             <input
-              className="rounded-xl border border-zinc-900 bg-[#111111] px-3.5 py-2.5 text-sm text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
+              className="min-w-0 flex-1 rounded-xl border border-zinc-900 bg-[#111111] px-3 py-2 text-xs text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10 lg:px-3.5 lg:py-2.5 lg:text-sm"
               onChange={(event) => setPodcastName(event.target.value)}
               placeholder="Ny podd"
               type="text"
               value={podcastName}
             />
             <button
-              className="rounded-full bg-[#181818] px-4 py-2.5 text-left text-sm font-bold text-zinc-200 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.01] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="shrink-0 rounded-full bg-[#181818] px-3.5 py-2 text-xs font-bold text-zinc-200 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.01] hover:text-white disabled:cursor-not-allowed disabled:opacity-60 lg:px-4 lg:py-2.5 lg:text-left lg:text-sm"
               disabled={isCreatingPodcast}
               type="submit"
             >
@@ -491,17 +491,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-zinc-900 bg-[#050505]/95 px-6 backdrop-blur sm:px-10 lg:px-14">
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-zinc-900 bg-[#050505]/95 px-4 backdrop-blur sm:h-20 sm:px-10 lg:px-14">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-600">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600 sm:text-xs">
               Aktiv podcast
             </p>
-            <h1 className="mt-1 truncate text-lg font-semibold text-white">
+            <h1 className="mt-0.5 truncate text-sm font-semibold text-white sm:mt-1 sm:text-lg">
               {activePodcast?.name || "Podd"}
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <label className="hidden h-11 w-80 items-center gap-3 rounded-full bg-[#111111] px-4 text-zinc-500 ring-1 ring-zinc-900 transition duration-200 focus-within:ring-[#1DB954]/40 sm:flex">
               <Search size={18} strokeWidth={2} />
               <input
@@ -513,37 +513,37 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
             <button
               aria-label="Notiser"
-              className="flex size-11 items-center justify-center rounded-full bg-[#111111] text-zinc-300 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.03] hover:bg-[#181818] hover:text-white"
+              className="flex size-9 items-center justify-center rounded-full bg-[#111111] text-zinc-300 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.03] hover:bg-[#181818] hover:text-white sm:size-11"
               type="button"
             >
-              <Bell size={18} strokeWidth={2} />
+              <Bell size={16} strokeWidth={2} />
             </button>
 
             <div className="relative">
               <button
-                className="flex items-center gap-2 rounded-full bg-[#111111] p-1 pr-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.02] hover:bg-[#181818] hover:text-white"
+                className="flex items-center gap-1 rounded-full bg-[#111111] p-1 pr-2 text-xs font-bold text-zinc-200 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.02] hover:bg-[#181818] hover:text-white sm:gap-2 sm:pr-3 sm:text-sm"
                 onClick={() => setIsProfileMenuOpen((isOpen) => !isOpen)}
                 type="button"
               >
                 {profile?.avatar_url ? (
                   <img
                     alt=""
-                    className="size-9 rounded-full object-cover"
+                    className="size-8 rounded-full object-cover sm:size-9"
                     src={profile.avatar_url}
                   />
                 ) : (
-                  <span className="flex size-9 items-center justify-center rounded-full bg-[#1DB954] text-sm font-bold text-black">
+                  <span className="flex size-8 items-center justify-center rounded-full bg-[#1DB954] text-xs font-bold text-black sm:size-9 sm:text-sm">
                     {avatarLetter}
                   </span>
                 )}
-                <ChevronDown size={16} strokeWidth={2} />
+                <ChevronDown size={14} strokeWidth={2} />
               </button>
 
               {isProfileMenuOpen ? (
-                <div className="absolute right-0 top-14 z-20 w-80 rounded-xl bg-[#181818] p-2 shadow-2xl shadow-black/50 ring-1 ring-zinc-800 transition duration-200">
+                <div className="absolute right-0 top-12 z-20 w-[calc(100vw-2rem)] max-w-80 rounded-xl bg-[#181818] p-2 shadow-2xl shadow-black/50 ring-1 ring-zinc-800 transition duration-200 sm:top-14">
                   <div className="border-b border-zinc-800 px-3 py-4">
                     <p className="truncate text-sm font-semibold text-white">
-                      {profile?.display_name || "Ingen profilnamn"}
+                      {profile?.display_name || "Inget profilnamn"}
                     </p>
                     <p className="mt-1 truncate text-xs text-zinc-500">
                       {user.email}

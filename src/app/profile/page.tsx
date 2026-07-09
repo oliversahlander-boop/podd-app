@@ -135,7 +135,7 @@ export default function ProfilePage() {
       setMessage(error.message);
     } else {
       setProfile(data);
-      setMessage("Avatar sparad.");
+      setMessage("Profilbild sparad.");
       window.dispatchEvent(
         new CustomEvent("profile-changed", {
           detail: {
@@ -159,19 +159,19 @@ export default function ProfilePage() {
   const label = displayName || user?.email || "Profil";
 
   return (
-    <main className="min-h-screen bg-[#050505] px-6 py-10 text-zinc-100 sm:px-10 lg:px-14">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-        <header className="rounded-2xl bg-[#111111] p-8 shadow-2xl shadow-black/30 ring-1 ring-zinc-900">
-          <div className="flex flex-col gap-7 sm:flex-row sm:items-end">
-            <div className="relative size-36 shrink-0">
+    <main className="min-h-screen bg-[#050505] px-4 py-6 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 sm:gap-8">
+        <header className="rounded-2xl bg-[#111111] p-5 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 sm:p-8">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:gap-7">
+            <div className="relative size-24 shrink-0 sm:size-36">
               {profile?.avatar_url ? (
                 <img
                   alt=""
-                  className="size-36 rounded-full object-cover shadow-2xl shadow-black/50"
+                  className="size-24 rounded-full object-cover shadow-2xl shadow-black/50 sm:size-36"
                   src={profile.avatar_url}
                 />
               ) : (
-                <div className="flex size-36 items-center justify-center rounded-full bg-[#1DB954] text-6xl font-bold text-black shadow-2xl shadow-black/50">
+                <div className="flex size-24 items-center justify-center rounded-full bg-[#1DB954] text-4xl font-bold text-black shadow-2xl shadow-black/50 sm:size-36 sm:text-6xl">
                   {label.charAt(0).toUpperCase()}
                 </div>
               )}
@@ -181,7 +181,7 @@ export default function ProfilePage() {
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
                 Profil
               </p>
-              <h1 className="mt-3 truncate text-5xl font-semibold tracking-tight text-white sm:text-6xl">
+              <h1 className="mt-3 truncate text-3xl font-semibold tracking-tight text-white sm:text-6xl">
                 {label}
               </h1>
               <p className="mt-4 text-sm text-zinc-400">
@@ -191,15 +191,15 @@ export default function ProfilePage() {
           </div>
         </header>
 
-        <section className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
-          <article className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-            <h2 className="text-2xl font-semibold text-white">Avatar</h2>
+        <section className="grid gap-4 sm:gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">Profilbild</h2>
             <p className="mt-2 text-sm leading-6 text-zinc-400">
               Används i toppmenyn och framtida teamvyer.
             </p>
             <label className="mt-6 inline-flex cursor-pointer items-center gap-2 rounded-full bg-[#181818] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition duration-200 hover:bg-[#202020] hover:text-white has-disabled:cursor-not-allowed has-disabled:opacity-60">
               <Upload size={16} />
-              {isUploading ? "Laddar upp..." : "Ladda upp avatar"}
+              {isUploading ? "Laddar upp..." : "Ladda upp profilbild"}
               <input
                 accept="image/*"
                 className="sr-only"
@@ -212,12 +212,12 @@ export default function ProfilePage() {
             </label>
           </article>
 
-          <article className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-            <h2 className="text-2xl font-semibold text-white">Information</h2>
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">Information</h2>
             <form className="mt-6 grid gap-4" onSubmit={saveProfile}>
               <label className="grid gap-2">
                 <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  Display name
+                  Visningsnamn
                 </span>
                 <input
                   className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
@@ -230,7 +230,7 @@ export default function ProfilePage() {
 
               <label className="grid gap-2">
                 <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  Email
+                  E-post
                 </span>
                 <input
                   className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-zinc-500 outline-none"
@@ -242,7 +242,7 @@ export default function ProfilePage() {
 
               <label className="grid gap-2">
                 <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  Theme
+                  Tema
                 </span>
                 <select
                   className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
@@ -250,7 +250,7 @@ export default function ProfilePage() {
                   value={theme}
                 >
                   <option className="bg-[#181818] text-white" value="dark">
-                    Dark
+                    Mörkt
                   </option>
                 </select>
               </label>

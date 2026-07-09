@@ -237,14 +237,14 @@ export default function EpisodesPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] px-6 py-10 text-zinc-100 sm:px-10 lg:px-14">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-9">
+    <main className="min-h-screen bg-[#050505] px-4 py-6 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 sm:gap-9">
         <header className="flex flex-col gap-6 border-b border-zinc-900 pb-8 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
-              Library
+              Bibliotek
             </p>
-            <h1 className="mt-4 text-5xl font-semibold tracking-tight text-white sm:text-6xl">
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-6xl">
               Avsnitt
             </h1>
             <p className="mt-4 text-sm text-zinc-400">
@@ -255,7 +255,7 @@ export default function EpisodesPage() {
 
         {canManageEpisodes ? (
           <form
-            className="grid gap-4 rounded-2xl bg-[#111111] p-5 shadow-xl shadow-black/20 ring-1 ring-zinc-900 md:grid-cols-[1fr_1fr_220px_auto]"
+            className="grid gap-3 rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:gap-4 sm:p-5 md:grid-cols-[1fr_1fr_220px_auto]"
             onSubmit={createEpisode}
           >
             <input
@@ -293,7 +293,7 @@ export default function EpisodesPage() {
           </form>
         ) : null}
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <section className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
           {episodes.map((episode) => {
             const thumbnail = getThumbnail(episode.links);
             const fileCount = getFileCount(episode.links);
@@ -301,7 +301,7 @@ export default function EpisodesPage() {
 
             return (
               <article
-                className="group relative rounded-2xl bg-[#181818] p-3 shadow-lg shadow-black/20 transition duration-200 hover:-translate-y-1 hover:bg-[#202020]"
+                className="group relative rounded-xl bg-[#181818] p-2.5 shadow-lg shadow-black/20 transition duration-200 hover:-translate-y-1 hover:bg-[#202020] sm:rounded-2xl sm:p-3"
                 key={episode.id}
               >
                 {editingId === episode.id && canManageEpisodes ? (
@@ -394,7 +394,7 @@ export default function EpisodesPage() {
                       )}
                     </div>
 
-                    <h2 className="mt-4 line-clamp-2 text-sm font-semibold leading-5 text-white">
+                    <h2 className="mt-3 line-clamp-2 text-xs font-semibold leading-5 text-white sm:mt-4 sm:text-sm">
                       {episode.title}
                     </h2>
                     <div className="mt-3 flex items-center gap-2">
@@ -407,14 +407,14 @@ export default function EpisodesPage() {
                       </span>
                     </div>
 
-                    <div className="mt-4 flex items-center justify-between gap-3 border-t border-zinc-800/70 pt-3 text-xs text-zinc-500">
+                    <div className="mt-3 flex flex-col gap-1.5 border-t border-zinc-800/70 pt-3 text-[11px] text-zinc-500 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:text-xs">
                       <span className="flex items-center gap-1.5">
                         <StickyNote size={14} />
-                        {noteCount} Notes
+                        {noteCount} anteckningar
                       </span>
                       <span className="flex items-center gap-1.5">
                         <FileText size={14} />
-                        {fileCount} Files
+                        {fileCount} filer
                       </span>
                     </div>
                   </Link>
@@ -433,7 +433,7 @@ export default function EpisodesPage() {
               Inga avsnitt ännu
             </h2>
             <p className="mt-3 text-sm text-zinc-500">
-              Skapa första avsnittet för att börja bygga biblioteket.
+              Skapa ditt första avsnitt för att börja bygga biblioteket.
             </p>
           </section>
         ) : null}

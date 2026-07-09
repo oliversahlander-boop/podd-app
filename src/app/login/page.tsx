@@ -10,6 +10,28 @@ export default function LoginPage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  function authErrorMessage(errorMessage: string) {
+    const normalizedMessage = errorMessage.toLowerCase();
+
+    if (normalizedMessage.includes("invalid login credentials")) {
+      return "Fel e-post eller lösenord.";
+    }
+
+    if (normalizedMessage.includes("user already registered")) {
+      return "Användaren finns redan.";
+    }
+
+    if (normalizedMessage.includes("email not confirmed")) {
+      return "E-postadressen är inte bekräftad.";
+    }
+
+    if (normalizedMessage.includes("password")) {
+      return "Lösenordet är inte giltigt.";
+    }
+
+    return "Något gick fel. Försök igen.";
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedEmail = email.trim();
@@ -36,14 +58,14 @@ export default function LoginPage() {
 
       setMessage(
         error
-          ? error.message
+          ? authErrorMessage(error.message)
           : mode === "login"
             ? "Inloggad."
             : "Konto skapat. Kontrollera din e-post vid behov.",
       );
     } catch {
       setMessage(
-        "Kunde inte ansluta till Supabase. Kontrollera internetanslutningen och starta om dev-servern.",
+        "Kunde inte ansluta till Supabase. Kontrollera internetanslutningen och starta om utvecklingsservern.",
       );
     } finally {
       setIsLoading(false);
@@ -56,12 +78,12 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#050505] px-6 py-10 text-zinc-100">
-      <section className="w-full max-w-md rounded-2xl bg-[#111111] p-8 shadow-2xl shadow-black/40 ring-1 ring-zinc-900">
+    <main className="flex min-h-screen items-center justify-center bg-[#050505] px-4 py-6 text-zinc-100 sm:px-6 sm:py-10">
+      <section className="w-full max-w-md rounded-2xl bg-[#111111] p-5 shadow-2xl shadow-black/40 ring-1 ring-zinc-900 sm:p-8">
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
           Podd
         </p>
-        <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white">
+        <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
           {mode === "login" ? "Logga in" : "Skapa konto"}
         </h1>
         <p className="mt-3 text-sm leading-6 text-zinc-400">

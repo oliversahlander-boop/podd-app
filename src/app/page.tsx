@@ -108,6 +108,14 @@ function statusTone(status: string | null) {
   return "bg-zinc-800 text-zinc-300";
 }
 
+function roleLabel(role: string) {
+  if (role === "owner") return "Ägare";
+  if (role === "admin") return "Administratör";
+  if (role === "editor") return "Redaktör";
+
+  return "Läsbehörighet";
+}
+
 export default function Home() {
   const [activePodcastId, setActivePodcastId] = useState("");
   const [podcast, setPodcast] = useState<Podcast | null>(null);
@@ -199,28 +207,28 @@ export default function Home() {
   ).length;
 
   return (
-    <main className="min-h-screen bg-[#050505] px-6 py-10 text-zinc-100 sm:px-10 lg:px-14">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-10">
-        <header className="rounded-2xl bg-[#111111] p-6 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 sm:p-8">
-          <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex flex-col gap-6 sm:flex-row sm:items-end">
+    <main className="min-h-screen bg-[#050505] px-4 py-6 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 sm:gap-10">
+        <header className="rounded-2xl bg-[#111111] p-4 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 sm:p-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
               {podcast?.thumbnail_url ? (
                 <img
                   alt=""
-                  className="size-36 rounded-2xl object-cover shadow-2xl shadow-black/50"
+                  className="size-24 rounded-2xl object-cover shadow-2xl shadow-black/50 sm:size-36"
                   src={podcast.thumbnail_url}
                 />
               ) : (
-                <div className="flex size-36 items-center justify-center rounded-2xl bg-[#181818] text-6xl font-bold text-zinc-300 shadow-2xl shadow-black/40">
+                <div className="flex size-24 items-center justify-center rounded-2xl bg-[#181818] text-4xl font-bold text-zinc-300 shadow-2xl shadow-black/40 sm:size-36 sm:text-6xl">
                   {(podcast?.name || "P").charAt(0).toUpperCase()}
                 </div>
               )}
 
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
-                  Podcast overview
+                  Podcastöversikt
                 </p>
-                <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white sm:text-6xl">
+                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-6xl">
                   {podcast?.name || "Podd"}
                 </h1>
                 <p className="mt-4 max-w-2xl text-sm leading-6 text-zinc-400">
@@ -229,17 +237,17 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 sm:min-w-96">
+            <div className="grid grid-cols-3 gap-2 sm:min-w-96 sm:gap-3">
               {[
                 ["Avsnitt", episodes.length],
                 ["Publicerade", publishedCount],
                 ["Material", fileCount],
               ].map(([label, value]) => (
                 <div
-                  className="rounded-xl bg-[#181818] p-4 ring-1 ring-zinc-900"
+                  className="rounded-xl bg-[#181818] p-3 ring-1 ring-zinc-900 sm:p-4"
                   key={label}
                 >
-                  <p className="text-2xl font-semibold text-white">{value}</p>
+                  <p className="text-xl font-semibold text-white sm:text-2xl">{value}</p>
                   <p className="mt-1 text-xs font-medium text-zinc-500">
                     {label}
                   </p>
@@ -264,7 +272,7 @@ export default function Home() {
               <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-2xl font-semibold text-white">
-                    Continue Working
+                    Fortsätt arbeta
                   </h2>
                   <Clock3 className="text-zinc-500" size={20} />
                 </div>
@@ -305,14 +313,14 @@ export default function Home() {
 
                 {continueEpisodes.length === 0 ? (
                   <div className="mt-6 rounded-xl bg-[#181818] p-6 text-sm text-zinc-500">
-                    Inget pågående avsnitt just nu.
+                    Inget pågående arbete just nu.
                   </div>
                 ) : null}
               </div>
 
               <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
                 <h2 className="text-2xl font-semibold text-white">
-                  Recent Activity
+                  Senaste aktivitet
                 </h2>
                 <div className="mt-6 space-y-4">
                   {latestEpisodes.slice(0, 4).map((episode) => (
@@ -337,7 +345,7 @@ export default function Home() {
             <section>
               <div className="mb-5 flex items-center justify-between gap-4">
                 <h2 className="text-2xl font-semibold text-white">
-                  Recent Episodes
+                  Senaste avsnitt
                 </h2>
                 <Link
                   className="text-sm font-bold text-[#1DB954] transition hover:text-[#22d760]"
@@ -383,7 +391,7 @@ export default function Home() {
             <section className="grid gap-6 lg:grid-cols-3">
               <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
                 <h2 className="text-2xl font-semibold text-white">
-                  Quick Actions
+                  Snabbåtgärder
                 </h2>
                 <div className="mt-6 grid gap-3">
                   {[
@@ -409,7 +417,7 @@ export default function Home() {
               <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
                 <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
                   <Users size={22} />
-                  Members
+                  Medlemmar
                 </h2>
                 <div className="mt-6 space-y-3">
                   {members.slice(0, 5).map((member) => (
@@ -425,7 +433,7 @@ export default function Home() {
                           {member.email}
                         </span>
                         <span className="text-xs text-zinc-500">
-                          {member.role}
+                          {roleLabel(member.role)}
                         </span>
                       </span>
                     </div>
@@ -436,7 +444,7 @@ export default function Home() {
               <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
                 <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
                   <CalendarDays size={22} />
-                  Upcoming Tasks
+                  Kommande uppgifter
                 </h2>
                 <div className="mt-6 space-y-3">
                   {[
@@ -458,7 +466,7 @@ export default function Home() {
 
             <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
               <h2 className="text-2xl font-semibold text-white">
-                Material nyligen
+                Senast uppladdat material
               </h2>
               <div className="mt-5 grid gap-3 md:grid-cols-2">
                 {recentMaterial.map((item: MaterialItem) => (
@@ -491,7 +499,7 @@ export default function Home() {
 
               {recentMaterial.length === 0 ? (
                 <p className="mt-5 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
-                  Inget material sparat ännu.
+                  Inget material uppladdat ännu.
                 </p>
               ) : null}
             </section>

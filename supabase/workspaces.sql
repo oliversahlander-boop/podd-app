@@ -32,6 +32,24 @@ create table if not exists public.podcast_members (
   primary key (podcast_id, user_id)
 );
 
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  podcast_id uuid references public.podcasts(id) on delete cascade,
+  actor_id uuid references auth.users(id) on delete set null,
+  type text not null,
+  title text not null,
+  body text,
+  target_url text,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.notification_reads (
+  notification_id uuid references public.notifications(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade,
+  read_at timestamptz default now(),
+  primary key (notification_id, user_id)
+);
+
 alter table public.podcast_members
 alter column role set default 'viewer';
 
@@ -44,6 +62,9 @@ add column if not exists podcast_id uuid references public.podcasts(id) on delet
 
 alter table public.episodes
 add column if not exists script text;
+
+alter table public.episodes
+add column if not exists segments jsonb not null default '[]'::jsonb;
 
 alter table public.episodes
 add column if not exists checklist_state jsonb not null default '{}'::jsonb;
@@ -68,10 +89,16 @@ add column if not exists publish_date date;
 
 create index if not exists episodes_podcast_id_idx on public.episodes(podcast_id);
 create index if not exists podcast_members_user_id_idx on public.podcast_members(user_id);
+create index if not exists notifications_podcast_id_created_at_idx
+on public.notifications(podcast_id, created_at desc);
+create index if not exists notification_reads_user_id_idx
+on public.notification_reads(user_id);
 
 alter table public.podcasts enable row level security;
 alter table public.podcast_members enable row level security;
 alter table public.profiles enable row level security;
+alter table public.notifications enable row level security;
+alter table public.notification_reads enable row level security;
 
 create policy "Users can view their own profile"
 on public.profiles
@@ -91,6 +118,45 @@ for update
 to authenticated
 using (id = auth.uid())
 with check (id = auth.uid());
+
+create policy "Members can view podcast notifications"
+on public.notifications
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.podcast_members
+    where podcast_members.podcast_id = notifications.podcast_id
+      and podcast_members.user_id = auth.uid()
+  )
+);
+
+create policy "Members can create podcast notifications"
+on public.notifications
+for insert
+to authenticated
+with check (
+  actor_id = auth.uid()
+  and exists (
+    select 1
+    from public.podcast_members
+    where podcast_members.podcast_id = notifications.podcast_id
+      and podcast_members.user_id = auth.uid()
+  )
+);
+
+create policy "Users can view their notification reads"
+on public.notification_reads
+for select
+to authenticated
+using (user_id = auth.uid());
+
+create policy "Users can create their notification reads"
+on public.notification_reads
+for insert
+to authenticated
+with check (user_id = auth.uid());
 
 create policy "Users can create podcasts"
 on public.podcasts
@@ -162,7 +228,13 @@ for select
 to authenticated
 using (user_id = auth.uid());
 
-create policy "Owners and admins can remove podcast members"
+drop policy if exists "Owners and admins can remove podcast members"
+on public.podcast_members;
+
+drop policy if exists "Owners can remove podcast members"
+on public.podcast_members;
+
+create policy "Owners can remove podcast members"
 on public.podcast_members
 for delete
 to authenticated
@@ -180,10 +252,10 @@ using (
   )
   and exists (
     select 1
-    from public.podcast_members manager_membership
-    where manager_membership.podcast_id = podcast_members.podcast_id
-      and manager_membership.user_id = auth.uid()
-      and manager_membership.role in ('owner', 'admin')
+    from public.podcast_members owner_membership
+    where owner_membership.podcast_id = podcast_members.podcast_id
+      and owner_membership.user_id = auth.uid()
+      and owner_membership.role = 'owner'
   )
 );
 
@@ -260,7 +332,7 @@ begin
       and podcast_members.user_id = auth.uid()
       and podcast_members.role in ('owner', 'admin')
   ) then
-    raise exception 'Only owners and admins can add members';
+    raise exception 'Endast ägare och administratörer kan lägga till medlemmar';
   end if;
 
   select users.id
@@ -270,7 +342,7 @@ begin
   limit 1;
 
   if target_user_id is null then
-    raise exception 'User not found';
+    raise exception 'Användaren hittades inte';
   end if;
 
   insert into public.podcast_members (podcast_id, user_id, role)
@@ -332,7 +404,7 @@ begin
       and podcast_members.user_id = auth.uid()
       and podcast_members.role = 'owner'
   ) then
-    raise exception 'Only owners can delete podcasts';
+    raise exception 'Endast ägare kan ta bort podcaster';
   end if;
 
   delete from public.episodes

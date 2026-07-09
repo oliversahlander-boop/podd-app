@@ -23,6 +23,12 @@ import { supabase } from "@/lib/supabase";
 
 type ChecklistState = Record<string, boolean>;
 
+type Segment = {
+  id: string;
+  notes: string;
+  title: string;
+};
+
 type Episode = {
   id: string;
   title: string;
@@ -32,6 +38,7 @@ type Episode = {
   links: string | null;
   podcast_id: string | null;
   script: string | null;
+  segments: Segment[] | null;
   checklist_state: ChecklistState | null;
   responsible_person: string | null;
   recording_date: string | null;
@@ -178,6 +185,10 @@ export default function EpisodeDetailPage() {
   const [responsiblePerson, setResponsiblePerson] = useState("");
   const [recordingDate, setRecordingDate] = useState("");
   const [script, setScript] = useState("");
+  const [segments, setSegments] = useState<Segment[]>([]);
+  const [segmentTitle, setSegmentTitle] = useState("");
+  const [segmentNotes, setSegmentNotes] = useState("");
+  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [links, setLinks] = useState("");
   const [linkInput, setLinkInput] = useState("");
@@ -230,7 +241,7 @@ export default function EpisodeDetailPage() {
     supabase
       .from("episodes")
       .select(
-        "id,title,description,status,notes,links,podcast_id,script,checklist_state,responsible_person,recording_date,spotify_link,youtube_link,tiktok_link,publish_date",
+        "id,title,description,status,notes,links,podcast_id,script,segments,checklist_state,responsible_person,recording_date,spotify_link,youtube_link,tiktok_link,publish_date",
       )
       .eq("id", params.id)
       .single()
@@ -245,6 +256,7 @@ export default function EpisodeDetailPage() {
           setResponsiblePerson(nextEpisode.responsible_person || "");
           setRecordingDate(nextEpisode.recording_date || "");
           setScript(nextEpisode.script || "");
+          setSegments(nextEpisode.segments || []);
           setNotes(nextEpisode.notes || "");
           setLinks(nextEpisode.links || "");
           setChecklistState(nextEpisode.checklist_state || {});
@@ -341,6 +353,49 @@ export default function EpisodeDetailPage() {
   async function saveScript(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await saveEpisodeFields({ script }, "Manus sparat.");
+  }
+
+  async function saveSegments(nextSegments: Segment[]) {
+    setSegments(nextSegments);
+    await saveEpisodeFields({ segments: nextSegments }, "Segment sparade.");
+  }
+
+  async function saveSegment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canManageEpisode || !segmentTitle.trim()) {
+      return;
+    }
+
+    const nextSegment = {
+      id: editingSegmentId || crypto.randomUUID(),
+      notes: segmentNotes.trim(),
+      title: segmentTitle.trim(),
+    };
+    const nextSegments = editingSegmentId
+      ? segments.map((segment) =>
+          segment.id === editingSegmentId ? nextSegment : segment,
+        )
+      : [...segments, nextSegment];
+
+    setSegmentTitle("");
+    setSegmentNotes("");
+    setEditingSegmentId(null);
+    await saveSegments(nextSegments);
+  }
+
+  function editSegment(segment: Segment) {
+    setEditingSegmentId(segment.id);
+    setSegmentTitle(segment.title);
+    setSegmentNotes(segment.notes);
+  }
+
+  async function deleteSegment(segmentId: string) {
+    if (!canManageEpisode) {
+      return;
+    }
+
+    await saveSegments(segments.filter((segment) => segment.id !== segmentId));
   }
 
   async function saveNotes(event: FormEvent<HTMLFormElement>) {
@@ -620,8 +675,8 @@ export default function EpisodeDetailPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] px-6 py-10 text-zinc-100 sm:px-10 lg:px-14">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
+    <main className="min-h-screen bg-[#050505] px-4 py-6 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 sm:gap-8">
         <Link
           className="w-fit rounded-full bg-[#111111] px-4 py-2 text-sm font-semibold text-zinc-300 ring-1 ring-zinc-900 transition hover:bg-[#181818] hover:text-white"
           href="/episodes"
@@ -629,7 +684,7 @@ export default function EpisodeDetailPage() {
           Tillbaka till avsnitt
         </Link>
 
-        <header className="grid gap-8 rounded-2xl bg-[#111111] p-6 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 lg:grid-cols-[0.7fr_1.3fr] lg:p-8">
+        <header className="grid gap-5 rounded-2xl bg-[#111111] p-4 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 sm:gap-8 sm:p-6 lg:grid-cols-[0.7fr_1.3fr] lg:p-8">
           <div>
             <div className="flex aspect-square items-center justify-center overflow-hidden rounded-2xl bg-[#181818] shadow-2xl shadow-black/50">
               {thumbnail ? (
@@ -664,7 +719,7 @@ export default function EpisodeDetailPage() {
                 ) : null}
                 <label className="flex cursor-pointer items-center gap-2 rounded-full bg-[#1DB954] px-5 py-2.5 text-sm font-bold text-black transition hover:bg-[#22d760]">
                   <Upload size={16} />
-                  {thumbnail ? "Byt thumbnail" : "Thumbnail"}
+                  {thumbnail ? "Byt omslagsbild" : "Omslagsbild"}
                   <input
                     accept="image/*"
                     className="hidden"
@@ -687,9 +742,9 @@ export default function EpisodeDetailPage() {
 
           <div className="flex flex-col justify-end">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
-              Episode workspace
+              Avsnittsarbetsyta
             </p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white sm:text-6xl">
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-6xl">
               {episode?.title || "Avsnitt"}
             </h1>
             <p className="mt-5 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
@@ -717,22 +772,22 @@ export default function EpisodeDetailPage() {
           </p>
         ) : null}
 
-        <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-          <article className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-            <h2 className="text-2xl font-semibold text-white">Overview</h2>
+        <section className="grid gap-4 sm:gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">Översikt</h2>
             <form className="mt-6 grid gap-4" onSubmit={saveOverview}>
               <input
                 className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="Title"
+                placeholder="Titel"
                 value={title}
               />
               <textarea
                 className="min-h-28 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="Description"
+                placeholder="Beskrivning"
                 value={description}
               />
               <select
@@ -751,7 +806,7 @@ export default function EpisodeDetailPage() {
                 className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
                 onChange={(event) => setResponsiblePerson(event.target.value)}
-                placeholder="Responsible person"
+                placeholder="Ansvarig person"
                 value={responsiblePerson}
               />
               <input
@@ -767,17 +822,17 @@ export default function EpisodeDetailPage() {
                   disabled={isSaving}
                   type="submit"
                 >
-                  Spara overview
+                  Spara översikt
                 </button>
               ) : null}
             </form>
           </article>
 
-          <article className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-            <h2 className="text-2xl font-semibold text-white">Manus</h2>
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">Manus</h2>
             <form className="mt-6 flex flex-col gap-4" onSubmit={saveScript}>
               <textarea
-                className="min-h-96 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
+                className="min-h-72 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60 sm:min-h-96"
                 disabled={!canManageEpisode}
                 onChange={(event) => setScript(event.target.value)}
                 placeholder="Skriv manus här."
@@ -795,8 +850,105 @@ export default function EpisodeDetailPage() {
             </form>
           </article>
 
-          <article className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-            <h2 className="text-2xl font-semibold text-white">Notes</h2>
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="text-xl font-semibold text-white sm:text-2xl">Segment</h2>
+              <span className="rounded-full bg-[#181818] px-3 py-1 text-xs font-bold text-zinc-400">
+                {segments.length} segment
+              </span>
+            </div>
+
+            {canManageEpisode ? (
+              <form className="mt-6 grid gap-3" onSubmit={saveSegment}>
+                <input
+                  className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
+                  onChange={(event) => setSegmentTitle(event.target.value)}
+                  placeholder="Segmenttitel"
+                  value={segmentTitle}
+                />
+                <textarea
+                  className="min-h-24 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
+                  onChange={(event) => setSegmentNotes(event.target.value)}
+                  placeholder="Segmentanteckningar"
+                  value={segmentNotes}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:opacity-60"
+                    disabled={isSaving}
+                    type="submit"
+                  >
+                    {editingSegmentId ? "Spara segment" : "Lägg till segment"}
+                  </button>
+                  {editingSegmentId ? (
+                    <button
+                      className="rounded-full bg-[#181818] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white"
+                      onClick={() => {
+                        setEditingSegmentId(null);
+                        setSegmentTitle("");
+                        setSegmentNotes("");
+                      }}
+                      type="button"
+                    >
+                      Avbryt
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+            ) : null}
+
+            <div className="mt-6 grid gap-3">
+              {segments.map((segment, index) => (
+                <div
+                  className="rounded-xl bg-[#181818] p-4 ring-1 ring-zinc-900"
+                  key={segment.id}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#1DB954]">
+                        Segment {index + 1}
+                      </p>
+                      <h3 className="mt-2 truncate text-base font-semibold text-white">
+                        {segment.title}
+                      </h3>
+                    </div>
+                    {canManageEpisode ? (
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          className="rounded-full bg-[#111111] px-3 py-2 text-xs font-bold text-zinc-300 ring-1 ring-zinc-800 transition hover:text-white"
+                          onClick={() => editSegment(segment)}
+                          type="button"
+                        >
+                          Redigera
+                        </button>
+                        <button
+                          className="rounded-full bg-[#111111] px-3 py-2 text-xs font-bold text-zinc-400 ring-1 ring-zinc-800 transition hover:text-white"
+                          onClick={() => deleteSegment(segment.id)}
+                          type="button"
+                        >
+                          Ta bort
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {segment.notes ? (
+                    <p className="mt-3 text-sm leading-6 text-zinc-400">
+                      {segment.notes}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            {segments.length === 0 ? (
+              <p className="mt-6 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
+                Inga segment ännu.
+              </p>
+            ) : null}
+          </article>
+
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">Anteckningar</h2>
             <form className="mt-6 flex flex-col gap-4" onSubmit={saveNotes}>
               <textarea
                 className="min-h-72 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
@@ -811,14 +963,14 @@ export default function EpisodeDetailPage() {
                   disabled={isSaving}
                   type="submit"
                 >
-                  Spara notes
+                  Spara anteckningar
                 </button>
               ) : null}
             </form>
           </article>
 
-          <article className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-            <h2 className="text-2xl font-semibold text-white">Checklist</h2>
+          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">Checklista</h2>
             <div className="mt-6 grid gap-3">
               {checklistItems.map((item) => (
                 <button
@@ -846,9 +998,9 @@ export default function EpisodeDetailPage() {
           </article>
         </section>
 
-        <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+        <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-2xl font-semibold text-white">Material</h2>
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">Material</h2>
             {canManageEpisode ? (
               <label className="flex w-fit cursor-pointer items-center gap-2 rounded-full bg-[#1DB954] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#22d760]">
                 <Upload size={16} />
@@ -894,16 +1046,16 @@ export default function EpisodeDetailPage() {
             </form>
           ) : null}
 
-          <div className="mt-8 grid gap-8 lg:grid-cols-2">
-            {renderFiles("Images", imageFiles)}
-            {renderFiles("PDFs", pdfFiles)}
-            {renderFiles("Videos", videoFiles)}
-            {renderFiles("Audio", audioFiles)}
-            {renderFiles("Files", otherFiles)}
+          <div className="mt-6 grid gap-6 sm:mt-8 sm:gap-8 lg:grid-cols-2">
+            {renderFiles("Bilder", imageFiles)}
+            {renderFiles("PDF-filer", pdfFiles)}
+            {renderFiles("Videor", videoFiles)}
+            {renderFiles("Ljud", audioFiles)}
+            {renderFiles("Filer", otherFiles)}
 
             {savedLinks.length > 0 ? (
               <div>
-                <h3 className="text-sm font-semibold text-white">Links</h3>
+                <h3 className="text-sm font-semibold text-white">Länkar</h3>
                 <div className="mt-3 grid gap-3">
                   {savedLinks.map((url) => (
                     <div
@@ -946,13 +1098,13 @@ export default function EpisodeDetailPage() {
 
           {savedFiles.length === 0 && savedLinks.length === 0 ? (
             <p className="mt-6 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
-              Inget material sparat ännu.
+              Inget material uppladdat ännu.
             </p>
           ) : null}
         </section>
 
-        <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-          <h2 className="text-2xl font-semibold text-white">Publishing</h2>
+        <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+          <h2 className="text-xl font-semibold text-white sm:text-2xl">Publicering</h2>
           <form
             className="mt-6 grid gap-4 md:grid-cols-2"
             onSubmit={savePublishing}
@@ -961,7 +1113,7 @@ export default function EpisodeDetailPage() {
               className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
               disabled={!canManageEpisode}
               onChange={(event) => setSpotifyLink(event.target.value)}
-              placeholder="Spotify link"
+              placeholder="Spotify-länk"
               type="url"
               value={spotifyLink}
             />
@@ -969,7 +1121,7 @@ export default function EpisodeDetailPage() {
               className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
               disabled={!canManageEpisode}
               onChange={(event) => setYoutubeLink(event.target.value)}
-              placeholder="YouTube link"
+              placeholder="YouTube-länk"
               type="url"
               value={youtubeLink}
             />
@@ -977,7 +1129,7 @@ export default function EpisodeDetailPage() {
               className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
               disabled={!canManageEpisode}
               onChange={(event) => setTiktokLink(event.target.value)}
-              placeholder="TikTok link"
+              placeholder="TikTok-länk"
               type="url"
               value={tiktokLink}
             />
@@ -994,7 +1146,7 @@ export default function EpisodeDetailPage() {
                 disabled={isSaving}
                 type="submit"
               >
-                Spara publishing
+                Spara publicering
               </button>
             ) : null}
           </form>
@@ -1006,7 +1158,7 @@ export default function EpisodeDetailPage() {
           <div className="w-full max-w-2xl rounded-lg bg-[#181818] p-5">
             <div className="flex items-center justify-between gap-4">
               <h2 className="text-lg font-semibold text-white">
-                Beskär thumbnail
+                Beskär omslagsbild
               </h2>
               <button
                 aria-label="Stäng"
@@ -1055,7 +1207,7 @@ export default function EpisodeDetailPage() {
                 onClick={saveCroppedThumbnail}
                 type="button"
               >
-                Spara thumbnail
+                Spara omslagsbild
               </button>
             </div>
           </div>
