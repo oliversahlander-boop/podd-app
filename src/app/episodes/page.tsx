@@ -5,6 +5,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { FileText, ImageIcon, MoreHorizontal, StickyNote } from "lucide-react";
+import { createNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 
 type Episode = {
@@ -191,6 +192,13 @@ export default function EpisodesPage() {
       console.error("Kunde inte skapa avsnitt:", error);
       setMessage(`Kunde inte skapa avsnitt: ${error.message}`);
     } else {
+      await createNotification({
+        body: title.trim(),
+        podcastId: activePodcastId,
+        targetUrl: "/episodes",
+        title: "Nytt avsnitt skapat",
+        type: "episode_created",
+      });
       setTitle("");
       setDescription("");
       setStatus("Idé");
@@ -238,6 +246,27 @@ export default function EpisodesPage() {
       console.error("Kunde inte spara avsnitt:", error);
       setMessage(`Kunde inte spara avsnitt: ${error.message}`);
     } else {
+      const updatedTitle = editTitle.trim();
+
+      setEpisodes((currentEpisodes) =>
+        currentEpisodes.map((episode) =>
+          episode.id === editingId
+            ? {
+                ...episode,
+                description: editDescription.trim(),
+                status: editStatus.trim(),
+                title: updatedTitle,
+              }
+            : episode,
+        ),
+      );
+      await createNotification({
+        body: updatedTitle,
+        podcastId: activePodcastId,
+        targetUrl: `/episodes/${editingId}`,
+        title: "Avsnitt uppdaterat",
+        type: "episode_updated",
+      });
       cancelEditing();
       await fetchEpisodes();
     }

@@ -5,6 +5,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Trash2, Upload, Users } from "lucide-react";
 import { User } from "@supabase/supabase-js";
+import { createNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 
 type Podcast = {
@@ -154,6 +155,13 @@ export default function SettingsPage() {
       setPodcast(data);
       setPodcastName(data.name);
       setMessage("Podcastnamn sparat.");
+      await createNotification({
+        body: data.name,
+        podcastId: activePodcastId,
+        targetUrl: "/settings",
+        title: "Podcastnamn ändrat",
+        type: "podcast_renamed",
+      });
       window.dispatchEvent(
         new CustomEvent("podcasts-changed", {
           detail: { id: data.id, name: data.name },
@@ -259,6 +267,13 @@ export default function SettingsPage() {
     } else {
       setEmail("");
       setMessage("Medlem tillagd.");
+      await createNotification({
+        body: email.trim(),
+        podcastId: activePodcastId,
+        targetUrl: "/settings",
+        title: "Medlem tillagd",
+        type: "member_added",
+      });
       await fetchMembers(activePodcastId);
     }
 
@@ -315,6 +330,13 @@ export default function SettingsPage() {
       ),
     );
     setMessage("Roll sparad.");
+    await createNotification({
+      body: `${member.email} är nu ${roleLabel(nextRole)}`,
+      podcastId: activePodcastId,
+      targetUrl: "/settings",
+      title: "Roll ändrad",
+      type: "role_changed",
+    });
   }
 
   async function leavePodcast() {

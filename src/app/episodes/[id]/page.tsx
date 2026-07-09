@@ -19,6 +19,7 @@ import {
   Video,
   X,
 } from "lucide-react";
+import { createNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 
 type ChecklistState = Record<string, boolean>;
@@ -39,11 +40,15 @@ type Episode = {
   podcast_id: string | null;
   script: string | null;
   segments: Segment[] | null;
+  checklist: ChecklistState | null;
   checklist_state: ChecklistState | null;
   responsible_person: string | null;
   recording_date: string | null;
+  spotify_url: string | null;
   spotify_link: string | null;
+  youtube_url: string | null;
   youtube_link: string | null;
+  tiktok_url: string | null;
   tiktok_link: string | null;
   publish_date: string | null;
 };
@@ -241,14 +246,40 @@ export default function EpisodeDetailPage() {
     supabase
       .from("episodes")
       .select(
-        "id,title,description,status,notes,links,podcast_id,script,segments,checklist_state,responsible_person,recording_date,spotify_link,youtube_link,tiktok_link,publish_date",
+        "id,title,description,status,notes,links,podcast_id,script,segments,checklist,checklist_state,responsible_person,recording_date,spotify_url,spotify_link,youtube_url,youtube_link,tiktok_url,tiktok_link,publish_date",
       )
       .eq("id", params.id)
-      .single()
-      .then(({ data, error }) => {
+      .maybeSingle()
+      .then(({ data, error, status, statusText }) => {
         if (isMounted && error) {
-          console.error("Kunde inte hämta avsnitt:", error);
-          setMessage(`Kunde inte hämta avsnitt: ${error.message}`);
+          console.error("Kunde inte hämta avsnitt:", {
+            data,
+            error,
+            status,
+            statusText,
+          });
+          setMessage(
+            [
+              "Kunde inte hämta avsnitt.",
+              error.message ? `Meddelande: ${error.message}` : null,
+              error.code ? `Kod: ${error.code}` : null,
+              error.details ? `Detaljer: ${error.details}` : null,
+            ]
+              .filter(Boolean)
+              .join(" "),
+          );
+          return;
+        }
+
+        if (isMounted && !data) {
+          console.error("Avsnitt hittades inte:", {
+            data,
+            error,
+            status,
+            statusText,
+          });
+          setEpisode(null);
+          setMessage("Avsnittet hittades inte.");
           return;
         }
 
@@ -265,10 +296,12 @@ export default function EpisodeDetailPage() {
           setSegments(nextEpisode.segments || []);
           setNotes(nextEpisode.notes || "");
           setLinks(nextEpisode.links || "");
-          setChecklistState(nextEpisode.checklist_state || {});
-          setSpotifyLink(nextEpisode.spotify_link || "");
-          setYoutubeLink(nextEpisode.youtube_link || "");
-          setTiktokLink(nextEpisode.tiktok_link || "");
+          setChecklistState(
+            nextEpisode.checklist || nextEpisode.checklist_state || {},
+          );
+          setSpotifyLink(nextEpisode.spotify_url || nextEpisode.spotify_link || "");
+          setYoutubeLink(nextEpisode.youtube_url || nextEpisode.youtube_link || "");
+          setTiktokLink(nextEpisode.tiktok_url || nextEpisode.tiktok_link || "");
           setPublishDate(nextEpisode.publish_date || "");
         }
       });
@@ -326,7 +359,7 @@ export default function EpisodeDetailPage() {
     successMessage: string,
   ) {
     if (!episode || !canManageEpisode) {
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -339,20 +372,23 @@ export default function EpisodeDetailPage() {
       .eq("podcast_id", episode.podcast_id);
 
     if (error) {
-      console.error("Episode save failed:", error);
-      setMessage(error.message);
+      console.error("Kunde inte spara avsnitt:", error);
+      setMessage(`Kunde inte spara avsnitt: ${error.message}`);
+      setIsSaving(false);
+      return false;
     } else {
       setEpisode({ ...episode, ...values });
       setMessage(successMessage);
     }
 
     setIsSaving(false);
+    return true;
   }
 
   async function saveOverview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    await saveEpisodeFields(
+    const saved = await saveEpisodeFields(
       {
         description: description.trim(),
         recording_date: recordingDate || null,
@@ -362,16 +398,49 @@ export default function EpisodeDetailPage() {
       },
       "Översikt sparad.",
     );
+
+    if (saved) {
+      await createNotification({
+        body: title.trim(),
+        podcastId: episode?.podcast_id || null,
+        targetUrl: `/episodes/${params.id}`,
+        title: "Avsnitt uppdaterat",
+        type: "episode_updated",
+      });
+    }
   }
 
   async function saveScript(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await saveEpisodeFields({ script }, "Manus sparat.");
+    const saved = await saveEpisodeFields({ script }, "Manus sparat.");
+
+    if (saved) {
+      await createNotification({
+        body: title,
+        podcastId: episode?.podcast_id || null,
+        targetUrl: `/episodes/${params.id}`,
+        title: "Manus uppdaterat",
+        type: "episode_updated",
+      });
+    }
   }
 
   async function saveSegments(nextSegments: Segment[]) {
-    setSegments(nextSegments);
-    await saveEpisodeFields({ segments: nextSegments }, "Segment sparade.");
+    const saved = await saveEpisodeFields(
+      { segments: nextSegments },
+      "Segment sparade.",
+    );
+
+    if (saved) {
+      setSegments(nextSegments);
+      await createNotification({
+        body: title,
+        podcastId: episode?.podcast_id || null,
+        targetUrl: `/episodes/${params.id}`,
+        title: "Segment uppdaterade",
+        type: "episode_updated",
+      });
+    }
   }
 
   async function saveSegment(event: FormEvent<HTMLFormElement>) {
@@ -414,21 +483,44 @@ export default function EpisodeDetailPage() {
 
   async function saveNotes(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await saveEpisodeFields({ notes }, "Anteckningar sparade.");
+    const saved = await saveEpisodeFields({ notes }, "Anteckningar sparade.");
+
+    if (saved) {
+      await createNotification({
+        body: title,
+        podcastId: episode?.podcast_id || null,
+        targetUrl: `/episodes/${params.id}`,
+        title: "Anteckningar uppdaterade",
+        type: "episode_updated",
+      });
+    }
   }
 
   async function savePublishing(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    await saveEpisodeFields(
+    const saved = await saveEpisodeFields(
       {
         publish_date: publishDate || null,
+        spotify_url: spotifyLink.trim() || null,
         spotify_link: spotifyLink.trim() || null,
+        tiktok_url: tiktokLink.trim() || null,
         tiktok_link: tiktokLink.trim() || null,
+        youtube_url: youtubeLink.trim() || null,
         youtube_link: youtubeLink.trim() || null,
       },
       "Publicering sparad.",
     );
+
+    if (saved) {
+      await createNotification({
+        body: title,
+        podcastId: episode?.podcast_id || null,
+        targetUrl: `/episodes/${params.id}`,
+        title: "Publicering uppdaterad",
+        type: "episode_updated",
+      });
+    }
   }
 
   async function toggleChecklistItem(item: string) {
@@ -441,11 +533,21 @@ export default function EpisodeDetailPage() {
       [item]: !checklistState[item],
     };
 
-    setChecklistState(nextChecklistState);
-    await saveEpisodeFields(
-      { checklist_state: nextChecklistState },
+    const saved = await saveEpisodeFields(
+      { checklist: nextChecklistState, checklist_state: nextChecklistState },
       "Checklista sparad.",
     );
+
+    if (saved) {
+      setChecklistState(nextChecklistState);
+      await createNotification({
+        body: title,
+        podcastId: episode?.podcast_id || null,
+        targetUrl: `/episodes/${params.id}`,
+        title: "Checklista uppdaterad",
+        type: "episode_updated",
+      });
+    }
   }
 
   async function addExternalLink(event: FormEvent<HTMLFormElement>) {
@@ -469,9 +571,16 @@ export default function EpisodeDetailPage() {
       setLinkInput("");
       setEpisode({ ...episode, links: nextLinks });
       setMessage("Länk sparad.");
+      await createNotification({
+        body: title,
+        podcastId: episode.podcast_id,
+        targetUrl: `/episodes/${params.id}`,
+        title: "Material uppladdat",
+        type: "material_uploaded",
+      });
     } else {
-      console.error("Saving link failed:", error);
-      setMessage(error.message);
+      console.error("Kunde inte spara länk:", error);
+      setMessage(`Kunde inte spara länk: ${error.message}`);
     }
 
     setIsSavingLinks(false);
@@ -479,7 +588,7 @@ export default function EpisodeDetailPage() {
 
   async function saveMaterialLines(nextLines: string[]) {
     if (!episode || !canManageEpisode) {
-      return;
+      return false;
     }
 
     const nextLinks = nextLines.join("\n");
@@ -490,26 +599,47 @@ export default function EpisodeDetailPage() {
       .eq("podcast_id", episode.podcast_id);
 
     if (error) {
-      console.error("Saving material failed:", error);
-      setMessage(error.message);
-      return;
+      console.error("Kunde inte spara material:", error);
+      setMessage(`Kunde inte spara material: ${error.message}`);
+      return false;
     }
 
     setLinks(nextLinks);
     setEpisode({ ...episode, links: nextLinks });
     setMessage("Material sparat.");
+    return true;
   }
 
   async function removeMaterial(lineToRemove: string) {
-    await saveMaterialLines(
+    const saved = await saveMaterialLines(
       materialLines.filter((line) => line !== lineToRemove),
     );
+
+    if (saved) {
+      await createNotification({
+        body: title,
+        podcastId: episode?.podcast_id || null,
+        targetUrl: `/episodes/${params.id}`,
+        title: "Material borttaget",
+        type: "material_deleted",
+      });
+    }
   }
 
   async function removeThumbnail() {
-    await saveMaterialLines(
+    const saved = await saveMaterialLines(
       materialLines.filter((line) => !line.startsWith(thumbnailPrefix)),
     );
+
+    if (saved) {
+      await createNotification({
+        body: title,
+        podcastId: episode?.podcast_id || null,
+        targetUrl: `/episodes/${params.id}`,
+        title: "Omslagsbild ändrad",
+        type: "thumbnail_changed",
+      });
+    }
   }
 
   async function uploadFile(file: File, kind: "file" | "thumbnail") {
@@ -528,8 +658,8 @@ export default function EpisodeDetailPage() {
       .upload(filePath, file, { upsert: true });
 
     if (error) {
-      console.error("Upload failed:", error);
-      setMessage(error.message);
+      console.error("Kunde inte ladda upp fil:", error);
+      setMessage(`Kunde inte ladda upp fil: ${error.message}`);
       setIsUploading(false);
       return;
     }
@@ -553,7 +683,19 @@ export default function EpisodeDetailPage() {
           ]
         : [...materialLines, nextLine];
 
-    await saveMaterialLines(nextLines);
+    const saved = await saveMaterialLines(nextLines);
+
+    if (saved) {
+      await createNotification({
+        body: file.name,
+        podcastId: episode.podcast_id,
+        targetUrl: `/episodes/${params.id}`,
+        title:
+          kind === "thumbnail" ? "Omslagsbild ändrad" : "Material uppladdat",
+        type: kind === "thumbnail" ? "thumbnail_changed" : "material_uploaded",
+      });
+    }
+
     setIsUploading(false);
   }
 

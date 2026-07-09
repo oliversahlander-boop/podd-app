@@ -27,6 +27,47 @@ type Profile = {
   theme: string | null;
 };
 
+type AppNotification = {
+  actor_id: string | null;
+  body: string | null;
+  created_at: string;
+  id: string;
+  isRead: boolean;
+  target_url: string | null;
+  title: string;
+  type: string;
+};
+
+type SearchResult = {
+  href: string;
+  id: string;
+  label: string;
+  meta: string;
+};
+
+type SearchEpisode = {
+  description: string | null;
+  id: string;
+  links: string | null;
+  notes: string | null;
+  script: string | null;
+  status: string | null;
+  title: string;
+};
+
+type SearchMember = {
+  display_name: string | null;
+  email: string;
+  role: string;
+  user_id: string;
+};
+
+const filePrefix = "file|";
+
+function fileNameFromUrl(url: string) {
+  return decodeURIComponent(url.split("/").pop() || url);
+}
+
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -40,10 +81,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [isCreatingPodcast, setIsCreatingPodcast] = useState(false);
   const [isLoadingPodcasts, setIsLoadingPodcasts] = useState(true);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isNotificationMenuOpen, setIsNotificationMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const isLoginPage = pathname === "/login";
   const activePodcast = podcasts.find((podcast) => podcast.id === activePodcastId);
   const profileLabel = profile?.display_name || user?.email || "Profil";
   const avatarLetter = profileLabel.charAt(0).toUpperCase();
+  const unreadCount = notifications.filter((notification) => !notification.isRead)
+    .length;
 
   const setActivePodcast = useCallback((id: string) => {
     setActivePodcastId(id);
@@ -66,6 +113,47 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
     setProfile(data);
   }, []);
+
+  const loadNotifications = useCallback(async () => {
+    if (!activePodcastId || !user) {
+      setNotifications([]);
+      return;
+    }
+
+    const [{ data: notificationData, error }, { data: readData }] =
+      await Promise.all([
+        supabase
+          .from("notifications")
+          .select("id,actor_id,type,title,body,target_url,created_at")
+          .eq("podcast_id", activePodcastId)
+          .order("created_at", { ascending: false })
+          .limit(30),
+        supabase
+          .from("notification_reads")
+          .select("notification_id")
+          .eq("user_id", user.id),
+      ]);
+
+    if (error) {
+      console.error("Kunde inte hämta notiser:", error);
+      return;
+    }
+
+    const readIds = new Set(
+      ((readData as { notification_id: string }[] | null) || []).map(
+        (read) => read.notification_id,
+      ),
+    );
+
+    setNotifications(
+      ((notificationData as Omit<AppNotification, "isRead">[] | null) || []).map(
+        (notification) => ({
+          ...notification,
+          isRead: readIds.has(notification.id),
+        }),
+      ),
+    );
+  }, [activePodcastId, user]);
 
   const loadPodcasts = useCallback(async (currentUser: User) => {
     setIsLoadingPodcasts(true);
@@ -269,11 +357,179 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }
   }, [isLoading, isLoginPage, router, user]);
 
+  useEffect(() => {
+    if (!activePodcastId || !user) {
+      return;
+    }
+
+    void Promise.resolve().then(() => {
+      loadNotifications();
+    });
+
+    const channel = supabase
+      .channel(`notifications:${activePodcastId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          filter: `podcast_id=eq.${activePodcastId}`,
+          schema: "public",
+          table: "notifications",
+        },
+        () => {
+          loadNotifications();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activePodcastId, loadNotifications, user]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function runSearch() {
+      const query = searchQuery.trim().toLowerCase();
+
+      if (!query || !activePodcastId) {
+        setSearchResults([]);
+        return;
+      }
+
+      const [{ data: episodeData, error }, { data: memberData }] =
+        await Promise.all([
+          supabase
+            .from("episodes")
+            .select("id,title,description,status,notes,script,links")
+            .eq("podcast_id", activePodcastId),
+          supabase.rpc("get_podcast_members", {
+            target_podcast_id: activePodcastId,
+          }),
+        ]);
+
+      if (error) {
+        console.error("Kunde inte söka:", error);
+      }
+
+      if (!isMounted) {
+        return;
+      }
+
+      const results: SearchResult[] = [];
+
+      ((episodeData as SearchEpisode[] | null) || []).forEach((episode) => {
+        const searchableText = [
+          episode.title,
+          episode.description,
+          episode.status,
+          episode.notes,
+          episode.script,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        if (searchableText.includes(query)) {
+          results.push({
+            href: `/episodes/${episode.id}`,
+            id: `episode-${episode.id}`,
+            label: episode.title,
+            meta: "Avsnitt",
+          });
+        }
+
+        (episode.links || "")
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .forEach((line, index) => {
+            const [, url, name, type] = line.split("|");
+            const materialName = line.startsWith(filePrefix)
+              ? name || fileNameFromUrl(url || line)
+              : line.replace(/^https?:\/\//, "").split("/")[0] || "Länk";
+
+            if (
+              [materialName, type, url || line]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase()
+                .includes(query)
+            ) {
+              results.push({
+                href: `/episodes/${episode.id}`,
+                id: `material-${episode.id}-${index}`,
+                label: materialName,
+                meta: `Material i ${episode.title}`,
+              });
+            }
+          });
+      });
+
+      ((memberData as SearchMember[] | null) || []).forEach((member) => {
+        const memberText = [member.email, member.display_name]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        if (memberText.includes(query)) {
+          results.push({
+            href: "/settings",
+            id: `member-${member.user_id}`,
+            label: member.display_name || member.email,
+            meta: "Medlem",
+          });
+        }
+      });
+
+      setSearchResults(results.slice(0, 8));
+    }
+
+    runSearch();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activePodcastId, searchQuery]);
+
   async function signOut() {
     await supabase.auth.signOut();
     setIsProfileMenuOpen(false);
+    setIsNotificationMenuOpen(false);
     clearActivePodcast();
     router.replace("/login");
+  }
+
+  async function openNotification(notification: AppNotification) {
+    if (!user) {
+      return;
+    }
+
+    if (!notification.isRead) {
+      const { error } = await supabase.from("notification_reads").upsert({
+        notification_id: notification.id,
+        user_id: user.id,
+      });
+
+      if (error) {
+        console.error("Kunde inte markera notis som läst:", error);
+      } else {
+        setNotifications((currentNotifications) =>
+          currentNotifications.map((currentNotification) =>
+            currentNotification.id === notification.id
+              ? { ...currentNotification, isRead: true }
+              : currentNotification,
+          ),
+        );
+      }
+    }
+
+    setIsNotificationMenuOpen(false);
+
+    if (notification.target_url) {
+      router.push(notification.target_url);
+    }
   }
 
   async function createPodcast(event: FormEvent<HTMLFormElement>) {
@@ -554,13 +810,66 @@ export default function AppShell({ children }: { children: ReactNode }) {
               </h1>
             </div>
 
-            <button
-              aria-label="Notiser"
-              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-zinc-300 ring-1 ring-zinc-900 transition hover:bg-[#181818] hover:text-white"
-              type="button"
-            >
-              <Bell size={17} strokeWidth={2} />
-            </button>
+            <div className="relative shrink-0">
+              <button
+                aria-label="Notiser"
+                className="relative flex size-10 items-center justify-center rounded-full bg-[#111111] text-zinc-300 ring-1 ring-zinc-900 transition hover:bg-[#181818] hover:text-white"
+                onClick={() =>
+                  setIsNotificationMenuOpen((isOpen) => !isOpen)
+                }
+                type="button"
+              >
+                <Bell size={17} strokeWidth={2} />
+                {unreadCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-[#1DB954] px-1.5 text-[10px] font-bold text-black">
+                    {unreadCount}
+                  </span>
+                ) : null}
+              </button>
+
+              {isNotificationMenuOpen ? (
+                <div className="absolute right-0 top-12 z-20 w-80 max-w-[calc(100vw-2rem)] rounded-xl bg-[#181818] p-2 shadow-2xl shadow-black/50 ring-1 ring-zinc-800">
+                  <p className="px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Notiser
+                  </p>
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifications.map((notification) => (
+                      <button
+                        className="block w-full rounded-lg px-3 py-3 text-left transition hover:bg-[#222222]"
+                        key={notification.id}
+                        onClick={() => openNotification(notification)}
+                        type="button"
+                      >
+                        <span className="flex items-start gap-2">
+                          <span
+                            className={`mt-1 size-2 rounded-full ${
+                              notification.isRead
+                                ? "bg-zinc-700"
+                                : "bg-[#1DB954]"
+                            }`}
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-white">
+                              {notification.title}
+                            </span>
+                            {notification.body ? (
+                              <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                                {notification.body}
+                              </span>
+                            ) : null}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                    {notifications.length === 0 ? (
+                      <p className="px-3 py-6 text-sm text-zinc-500">
+                        Inga notiser
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -601,6 +910,44 @@ export default function AppShell({ children }: { children: ReactNode }) {
               );
             })}
           </div>
+
+          <div className="relative mt-3 flex h-10 items-center gap-3 rounded-full bg-[#111111] px-4 text-zinc-500 ring-1 ring-zinc-900 focus-within:ring-[#1DB954]/40">
+            <Search size={16} strokeWidth={2} />
+            <input
+              className="w-full bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Sök"
+              type="search"
+              value={searchQuery}
+            />
+            {searchQuery.trim() ? (
+              <div className="absolute left-0 top-12 z-20 w-full rounded-xl bg-[#181818] p-2 shadow-2xl shadow-black/50 ring-1 ring-zinc-800">
+                {searchResults.map((result) => (
+                  <Link
+                    className="block rounded-lg px-3 py-3 transition hover:bg-[#222222]"
+                    href={result.href}
+                    key={result.id}
+                    onClick={() => {
+                      setSearchQuery("");
+                      setSearchResults([]);
+                    }}
+                  >
+                    <span className="block truncate text-sm font-semibold text-white">
+                      {result.label}
+                    </span>
+                    <span className="mt-1 block text-xs text-zinc-500">
+                      {result.meta}
+                    </span>
+                  </Link>
+                ))}
+                {searchResults.length === 0 ? (
+                  <p className="px-3 py-4 text-sm text-zinc-500">
+                    Inga resultat
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </header>
 
         <header className="sticky top-0 z-30 hidden h-20 items-center justify-between border-b border-zinc-900 bg-[#050505]/95 px-10 backdrop-blur md:flex lg:px-14">
@@ -614,22 +961,104 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <div className="flex items-center gap-3">
-            <label className="flex h-11 w-80 items-center gap-3 rounded-full bg-[#111111] px-4 text-zinc-500 ring-1 ring-zinc-900 transition duration-200 focus-within:ring-[#1DB954]/40">
+            <div className="relative flex h-11 w-80 items-center gap-3 rounded-full bg-[#111111] px-4 text-zinc-500 ring-1 ring-zinc-900 transition duration-200 focus-within:ring-[#1DB954]/40">
               <Search size={18} strokeWidth={2} />
               <input
                 className="w-full bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
+                onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Sök"
                 type="search"
+                value={searchQuery}
               />
-            </label>
+              {searchQuery.trim() ? (
+                <div className="absolute left-0 top-14 z-20 w-full rounded-xl bg-[#181818] p-2 shadow-2xl shadow-black/50 ring-1 ring-zinc-800">
+                  {searchResults.map((result) => (
+                    <Link
+                      className="block rounded-lg px-3 py-3 transition hover:bg-[#222222]"
+                      href={result.href}
+                      key={result.id}
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSearchResults([]);
+                      }}
+                    >
+                      <span className="block truncate text-sm font-semibold text-white">
+                        {result.label}
+                      </span>
+                      <span className="mt-1 block text-xs text-zinc-500">
+                        {result.meta}
+                      </span>
+                    </Link>
+                  ))}
+                  {searchResults.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-zinc-500">
+                      Inga resultat
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
 
-            <button
-              aria-label="Notiser"
-              className="flex size-11 items-center justify-center rounded-full bg-[#111111] text-zinc-300 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.03] hover:bg-[#181818] hover:text-white"
-              type="button"
-            >
-              <Bell size={18} strokeWidth={2} />
-            </button>
+            <div className="relative">
+              <button
+                aria-label="Notiser"
+                className="relative flex size-11 items-center justify-center rounded-full bg-[#111111] text-zinc-300 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.03] hover:bg-[#181818] hover:text-white"
+                onClick={() =>
+                  setIsNotificationMenuOpen((isOpen) => !isOpen)
+                }
+                type="button"
+              >
+                <Bell size={18} strokeWidth={2} />
+                {unreadCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-[#1DB954] px-1.5 text-[10px] font-bold text-black">
+                    {unreadCount}
+                  </span>
+                ) : null}
+              </button>
+
+              {isNotificationMenuOpen ? (
+                <div className="absolute right-0 top-14 z-20 w-80 rounded-xl bg-[#181818] p-2 shadow-2xl shadow-black/50 ring-1 ring-zinc-800">
+                  <p className="px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Notiser
+                  </p>
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifications.map((notification) => (
+                      <button
+                        className="block w-full rounded-lg px-3 py-3 text-left transition hover:bg-[#222222]"
+                        key={notification.id}
+                        onClick={() => openNotification(notification)}
+                        type="button"
+                      >
+                        <span className="flex items-start gap-2">
+                          <span
+                            className={`mt-1 size-2 rounded-full ${
+                              notification.isRead
+                                ? "bg-zinc-700"
+                                : "bg-[#1DB954]"
+                            }`}
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-white">
+                              {notification.title}
+                            </span>
+                            {notification.body ? (
+                              <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                                {notification.body}
+                              </span>
+                            ) : null}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                    {notifications.length === 0 ? (
+                      <p className="px-3 py-6 text-sm text-zinc-500">
+                        Inga notiser
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
 
             <div className="relative">
               <button

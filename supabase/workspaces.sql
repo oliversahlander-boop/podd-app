@@ -67,6 +67,9 @@ alter table public.episodes
 add column if not exists segments jsonb not null default '[]'::jsonb;
 
 alter table public.episodes
+add column if not exists checklist jsonb not null default '{}'::jsonb;
+
+alter table public.episodes
 add column if not exists checklist_state jsonb not null default '{}'::jsonb;
 
 alter table public.episodes
@@ -79,10 +82,19 @@ alter table public.episodes
 add column if not exists spotify_link text;
 
 alter table public.episodes
+add column if not exists spotify_url text;
+
+alter table public.episodes
 add column if not exists youtube_link text;
 
 alter table public.episodes
+add column if not exists youtube_url text;
+
+alter table public.episodes
 add column if not exists tiktok_link text;
+
+alter table public.episodes
+add column if not exists tiktok_url text;
 
 alter table public.episodes
 add column if not exists publish_date date;
@@ -157,6 +169,16 @@ create policy "Users can create their notification reads"
 on public.notification_reads
 for insert
 to authenticated
+with check (user_id = auth.uid());
+
+drop policy if exists "Users can update their notification reads"
+on public.notification_reads;
+
+create policy "Users can update their notification reads"
+on public.notification_reads
+for update
+to authenticated
+using (user_id = auth.uid())
 with check (user_id = auth.uid());
 
 drop policy if exists "Members can view podcast episodes"
@@ -385,6 +407,8 @@ with check (
   )
 );
 
+drop function if exists public.add_podcast_member_by_email(uuid, text);
+
 create or replace function public.add_podcast_member_by_email(
   target_podcast_id uuid,
   target_email text
@@ -393,7 +417,8 @@ returns table (
   podcast_id uuid,
   user_id uuid,
   role text,
-  email text
+  email text,
+  display_name text
 )
 language plpgsql
 security definer
@@ -432,20 +457,25 @@ begin
     public.podcast_members.podcast_id,
     public.podcast_members.user_id,
     public.podcast_members.role,
-    auth.users.email::text
+    auth.users.email::text,
+    public.profiles.display_name
   from public.podcast_members
   join auth.users on auth.users.id = public.podcast_members.user_id
+  left join public.profiles on public.profiles.id = public.podcast_members.user_id
   where public.podcast_members.podcast_id = target_podcast_id
     and public.podcast_members.user_id = target_user_id;
 end;
 $$;
+
+drop function if exists public.get_podcast_members(uuid);
 
 create or replace function public.get_podcast_members(target_podcast_id uuid)
 returns table (
   podcast_id uuid,
   user_id uuid,
   role text,
-  email text
+  email text,
+  display_name text
 )
 language sql
 security definer
@@ -455,9 +485,11 @@ as $$
     public.podcast_members.podcast_id,
     public.podcast_members.user_id,
     public.podcast_members.role,
-    auth.users.email::text
+    auth.users.email::text,
+    public.profiles.display_name
   from public.podcast_members
   join auth.users on auth.users.id = public.podcast_members.user_id
+  left join public.profiles on public.profiles.id = public.podcast_members.user_id
   where public.podcast_members.podcast_id = target_podcast_id
     and exists (
       select 1
