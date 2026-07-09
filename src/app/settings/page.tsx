@@ -338,13 +338,13 @@ export default function SettingsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] px-4 py-6 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+    <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 sm:gap-8">
         <header className="border-b border-zinc-900 pb-8">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
             Arbetsyta
           </p>
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-6xl">
+          <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white sm:text-6xl">
             Inställningar
           </h1>
           <p className="mt-4 text-sm text-zinc-400">
@@ -371,7 +371,7 @@ export default function SettingsPage() {
                 {(podcast?.name || "P").charAt(0).toUpperCase()}
               </div>
             )}
-            <h2 className="mt-5 truncate text-2xl font-semibold text-white">
+            <h2 className="mt-5 truncate text-xl font-semibold text-white sm:text-2xl">
               {podcast?.name || "Podcast"}
             </h2>
             <p className="mt-2 text-sm text-zinc-500">
@@ -429,7 +429,7 @@ export default function SettingsPage() {
         <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
+              <h2 className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
                 <Users size={20} />
                 Medlemmar
               </h2>
@@ -529,7 +529,7 @@ export default function SettingsPage() {
         </section>
 
         <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-red-950/50 sm:p-6">
-          <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
+          <h2 className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
             <Trash2 size={22} />
             Riskzon
           </h2>

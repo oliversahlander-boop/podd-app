@@ -207,7 +207,7 @@ export default function Home() {
   ).length;
 
   return (
-    <main className="min-h-screen bg-[#050505] px-4 py-6 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+    <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 sm:gap-10">
         <header className="rounded-2xl bg-[#111111] p-4 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 sm:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -228,7 +228,7 @@ export default function Home() {
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
                   Podcastöversikt
                 </p>
-                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-6xl">
+                <h1 className="mt-3 text-2xl font-semibold tracking-tight text-white sm:text-6xl">
                   {podcast?.name || "Podd"}
                 </h1>
                 <p className="mt-4 max-w-2xl text-sm leading-6 text-zinc-400">
@@ -269,9 +269,9 @@ export default function Home() {
         ) : (
           <>
             <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-              <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+              <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
                 <div className="flex items-center justify-between gap-4">
-                  <h2 className="text-2xl font-semibold text-white">
+                  <h2 className="text-xl font-semibold text-white sm:text-2xl">
                     Fortsätt arbeta
                   </h2>
                   <Clock3 className="text-zinc-500" size={20} />
@@ -312,14 +312,14 @@ export default function Home() {
                 </div>
 
                 {continueEpisodes.length === 0 ? (
-                  <div className="mt-6 rounded-xl bg-[#181818] p-6 text-sm text-zinc-500">
+                  <div className="mt-6 rounded-xl bg-[#181818] p-4 text-sm text-zinc-500 sm:p-6">
                     Inget pågående arbete just nu.
                   </div>
                 ) : null}
               </div>
 
-              <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-                <h2 className="text-2xl font-semibold text-white">
+              <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+                <h2 className="text-xl font-semibold text-white sm:text-2xl">
                   Senaste aktivitet
                 </h2>
                 <div className="mt-6 space-y-4">
@@ -344,7 +344,7 @@ export default function Home() {
 
             <section>
               <div className="mb-5 flex items-center justify-between gap-4">
-                <h2 className="text-2xl font-semibold text-white">
+                <h2 className="text-xl font-semibold text-white sm:text-2xl">
                   Senaste avsnitt
                 </h2>
                 <Link
@@ -389,8 +389,8 @@ export default function Home() {
             </section>
 
             <section className="grid gap-6 lg:grid-cols-3">
-              <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-                <h2 className="text-2xl font-semibold text-white">
+              <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+                <h2 className="text-xl font-semibold text-white sm:text-2xl">
                   Snabbåtgärder
                 </h2>
                 <div className="mt-6 grid gap-3">
@@ -414,8 +414,8 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-                <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
+              <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+                <h2 className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
                   <Users size={22} />
                   Medlemmar
                 </h2>
@@ -441,8 +441,8 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-                <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
+              <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+                <h2 className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
                   <CalendarDays size={22} />
                   Kommande uppgifter
                 </h2>
@@ -464,8 +464,8 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
-              <h2 className="text-2xl font-semibold text-white">
+            <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+              <h2 className="text-xl font-semibold text-white sm:text-2xl">
                 Senast uppladdat material
               </h2>
               <div className="mt-5 grid gap-3 md:grid-cols-2">

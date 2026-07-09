@@ -97,6 +97,7 @@ on public.notification_reads(user_id);
 alter table public.podcasts enable row level security;
 alter table public.podcast_members enable row level security;
 alter table public.profiles enable row level security;
+alter table public.episodes enable row level security;
 alter table public.notifications enable row level security;
 alter table public.notification_reads enable row level security;
 
@@ -157,6 +158,82 @@ on public.notification_reads
 for insert
 to authenticated
 with check (user_id = auth.uid());
+
+drop policy if exists "Members can view podcast episodes"
+on public.episodes;
+
+drop policy if exists "Editors can create podcast episodes"
+on public.episodes;
+
+drop policy if exists "Editors can update podcast episodes"
+on public.episodes;
+
+drop policy if exists "Editors can delete podcast episodes"
+on public.episodes;
+
+create policy "Members can view podcast episodes"
+on public.episodes
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.podcast_members
+    where podcast_members.podcast_id = episodes.podcast_id
+      and podcast_members.user_id = auth.uid()
+  )
+);
+
+create policy "Editors can create podcast episodes"
+on public.episodes
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.podcast_members
+    where podcast_members.podcast_id = episodes.podcast_id
+      and podcast_members.user_id = auth.uid()
+      and podcast_members.role in ('owner', 'admin', 'editor')
+  )
+);
+
+create policy "Editors can update podcast episodes"
+on public.episodes
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.podcast_members
+    where podcast_members.podcast_id = episodes.podcast_id
+      and podcast_members.user_id = auth.uid()
+      and podcast_members.role in ('owner', 'admin', 'editor')
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.podcast_members
+    where podcast_members.podcast_id = episodes.podcast_id
+      and podcast_members.user_id = auth.uid()
+      and podcast_members.role in ('owner', 'admin', 'editor')
+  )
+);
+
+create policy "Editors can delete podcast episodes"
+on public.episodes
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.podcast_members
+    where podcast_members.podcast_id = episodes.podcast_id
+      and podcast_members.user_id = auth.uid()
+      and podcast_members.role in ('owner', 'admin', 'editor')
+  )
+);
 
 create policy "Users can create podcasts"
 on public.podcasts

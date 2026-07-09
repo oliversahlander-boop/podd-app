@@ -383,62 +383,62 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#050505] lg:flex-row">
-      <aside className="w-full shrink-0 border-b border-zinc-900 bg-[#050505] px-4 py-4 lg:w-72 lg:border-b-0 lg:border-r lg:px-5 lg:py-6">
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#050505] md:flex-row">
+      <aside className="hidden w-72 shrink-0 border-r border-zinc-900 bg-[#050505] px-5 py-6 md:block">
         <Link
-          className="block px-2 text-xs font-semibold tracking-[0.22em] text-[#1DB954] uppercase lg:px-3 lg:text-sm"
+          className="block px-3 text-sm font-semibold tracking-[0.22em] text-[#1DB954] uppercase"
           href="/"
         >
           Podd
         </Link>
 
-        <nav className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:mt-8 lg:flex-col lg:gap-1.5 lg:overflow-visible lg:pb-0">
+        <nav className="mt-8 flex flex-col gap-1.5">
           <Link
-            className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition duration-200 lg:gap-3 lg:px-3.5 lg:py-3 lg:text-sm ${
+            className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
               pathname === "/"
                 ? "bg-[#181818] text-white shadow-lg shadow-black/20"
                 : "text-zinc-300 hover:bg-[#111111] hover:text-white"
             }`}
             href="/"
           >
-            <Home size={16} strokeWidth={2} />
+            <Home size={18} strokeWidth={2} />
             Start
           </Link>
           <Link
-            className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition duration-200 lg:gap-3 lg:px-3.5 lg:py-3 lg:text-sm ${
+            className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
               pathname.startsWith("/episodes")
                 ? "bg-[#181818] text-white shadow-lg shadow-black/20"
                 : "text-zinc-300 hover:bg-[#111111] hover:text-white"
             }`}
             href="/episodes"
           >
-            <Library size={16} strokeWidth={2} />
+            <Library size={18} strokeWidth={2} />
             Avsnitt
           </Link>
           <Link
-            className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold transition duration-200 lg:gap-3 lg:px-3.5 lg:py-3 lg:text-sm ${
+            className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
               pathname === "/settings"
                 ? "bg-[#181818] text-white shadow-lg shadow-black/20"
                 : "text-zinc-300 hover:bg-[#111111] hover:text-white"
             }`}
             href="/settings"
           >
-            <Settings size={16} strokeWidth={2} />
+            <Settings size={18} strokeWidth={2} />
             Inställningar
           </Link>
         </nav>
 
-        <div className="mt-4 lg:mt-10">
-          <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-600 lg:px-3 lg:text-xs">
+        <div className="mt-10">
+          <p className="px-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-600">
             Podcaster
           </p>
-          <div className="mt-2 flex gap-2 overflow-x-auto pb-1 lg:mt-3 lg:flex-col lg:gap-1.5 lg:overflow-visible lg:pb-0">
+          <div className="mt-3 flex flex-col gap-1.5">
             {podcasts.map((podcast) => {
               const isActive = podcast.id === activePodcastId;
 
               return (
                 <button
-                  className={`group flex min-w-48 items-center gap-2 rounded-xl px-2.5 py-2 text-left transition duration-200 lg:min-w-0 lg:w-full lg:gap-3 lg:px-3 lg:py-2.5 ${
+                  className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition duration-200 ${
                     isActive
                       ? "bg-[#181818] text-white shadow-lg shadow-black/20"
                       : "text-zinc-400 hover:bg-[#111111] hover:text-white"
@@ -450,19 +450,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   {podcast.thumbnail_url ? (
                     <img
                       alt=""
-                      className="size-9 shrink-0 rounded-lg object-cover shadow-md shadow-black/30 lg:size-11"
+                      className="size-11 shrink-0 rounded-lg object-cover shadow-md shadow-black/30"
                       src={podcast.thumbnail_url}
                     />
                   ) : (
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#181818] text-xs font-bold text-zinc-300 shadow-md shadow-black/30 lg:size-11 lg:text-sm">
+                    <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[#181818] text-sm font-bold text-zinc-300 shadow-md shadow-black/30">
                       {podcast.name.charAt(0).toUpperCase()}
                     </span>
                   )}
                   <span className="min-w-0">
-                    <span className="block truncate text-xs font-semibold lg:text-sm">
+                    <span className="block truncate text-sm font-semibold">
                       {podcast.name}
                     </span>
-                    <span className="mt-0.5 block text-[11px] text-zinc-500 lg:text-xs">
+                    <span className="mt-0.5 block text-xs text-zinc-500">
                       {episodeCounts[podcast.id] || 0} avsnitt
                     </span>
                   </span>
@@ -471,16 +471,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
             })}
           </div>
 
-          <form className="mt-3 flex gap-2 px-1 lg:mt-5 lg:flex-col" onSubmit={createPodcast}>
+          <form className="mt-5 flex flex-col gap-2 px-1" onSubmit={createPodcast}>
             <input
-              className="min-w-0 flex-1 rounded-xl border border-zinc-900 bg-[#111111] px-3 py-2 text-xs text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10 lg:px-3.5 lg:py-2.5 lg:text-sm"
+              className="rounded-xl border border-zinc-900 bg-[#111111] px-3.5 py-2.5 text-sm text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
               onChange={(event) => setPodcastName(event.target.value)}
               placeholder="Ny podd"
               type="text"
               value={podcastName}
             />
             <button
-              className="shrink-0 rounded-full bg-[#181818] px-3.5 py-2 text-xs font-bold text-zinc-200 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.01] hover:text-white disabled:cursor-not-allowed disabled:opacity-60 lg:px-4 lg:py-2.5 lg:text-left lg:text-sm"
+              className="rounded-full bg-[#181818] px-4 py-2.5 text-left text-sm font-bold text-zinc-200 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.01] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isCreatingPodcast}
               type="submit"
             >
@@ -491,18 +491,130 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-zinc-900 bg-[#050505]/95 px-4 backdrop-blur sm:h-20 sm:px-10 lg:px-14">
+        <header className="sticky top-0 z-30 border-b border-zinc-900 bg-[#050505]/95 px-4 py-3 backdrop-blur md:hidden">
+          <div className="flex items-center justify-between gap-3">
+            <div className="relative shrink-0">
+              <button
+                className="flex size-10 items-center justify-center rounded-full bg-[#111111] text-sm font-bold text-zinc-200 ring-1 ring-zinc-900"
+                onClick={() => setIsProfileMenuOpen((isOpen) => !isOpen)}
+                type="button"
+              >
+                {profile?.avatar_url ? (
+                  <img
+                    alt=""
+                    className="size-10 rounded-full object-cover"
+                    src={profile.avatar_url}
+                  />
+                ) : (
+                  avatarLetter
+                )}
+              </button>
+
+              {isProfileMenuOpen ? (
+                <div className="absolute left-0 top-12 z-20 w-72 rounded-xl bg-[#181818] p-2 shadow-2xl shadow-black/50 ring-1 ring-zinc-800">
+                  <div className="border-b border-zinc-800 px-3 py-4">
+                    <p className="truncate text-sm font-semibold text-white">
+                      {profile?.display_name || "Inget profilnamn"}
+                    </p>
+                    <p className="mt-1 truncate text-xs text-zinc-500">
+                      {user.email}
+                    </p>
+                  </div>
+                  <Link
+                    className="mt-2 block rounded-md px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-[#222222] hover:text-white"
+                    href="/profile"
+                    onClick={() => setIsProfileMenuOpen(false)}
+                  >
+                    Profil
+                  </Link>
+                  <Link
+                    className="block rounded-md px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-[#222222] hover:text-white"
+                    href="/settings"
+                    onClick={() => setIsProfileMenuOpen(false)}
+                  >
+                    Inställningar
+                  </Link>
+                  <button
+                    className="block w-full rounded-md px-3 py-2 text-left text-sm font-medium text-zinc-200 transition hover:bg-[#222222] hover:text-white"
+                    onClick={signOut}
+                    type="button"
+                  >
+                    Logga ut
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="min-w-0 text-center">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+                Aktiv podcast
+              </p>
+              <h1 className="truncate text-sm font-semibold text-white">
+                {activePodcast?.name || "Podd"}
+              </h1>
+            </div>
+
+            <button
+              aria-label="Notiser"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-zinc-300 ring-1 ring-zinc-900 transition hover:bg-[#181818] hover:text-white"
+              type="button"
+            >
+              <Bell size={17} strokeWidth={2} />
+            </button>
+          </div>
+
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {podcasts.map((podcast) => {
+              const isActive = podcast.id === activePodcastId;
+
+              return (
+                <button
+                  className={`flex min-w-44 items-center gap-2 rounded-xl px-2.5 py-2 text-left transition ${
+                    isActive
+                      ? "bg-[#181818] text-white"
+                      : "bg-[#0c0c0c] text-zinc-400"
+                  }`}
+                  key={podcast.id}
+                  onClick={() => setActivePodcast(podcast.id)}
+                  type="button"
+                >
+                  {podcast.thumbnail_url ? (
+                    <img
+                      alt=""
+                      className="size-9 shrink-0 rounded-lg object-cover"
+                      src={podcast.thumbnail_url}
+                    />
+                  ) : (
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#181818] text-xs font-bold text-zinc-300">
+                      {podcast.name.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-semibold">
+                      {podcast.name}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] text-zinc-500">
+                      {episodeCounts[podcast.id] || 0} avsnitt
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </header>
+
+        <header className="sticky top-0 z-30 hidden h-20 items-center justify-between border-b border-zinc-900 bg-[#050505]/95 px-10 backdrop-blur md:flex lg:px-14">
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-600 sm:text-xs">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-600">
               Aktiv podcast
             </p>
-            <h1 className="mt-0.5 truncate text-sm font-semibold text-white sm:mt-1 sm:text-lg">
+            <h1 className="mt-1 truncate text-lg font-semibold text-white">
               {activePodcast?.name || "Podd"}
             </h1>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            <label className="hidden h-11 w-80 items-center gap-3 rounded-full bg-[#111111] px-4 text-zinc-500 ring-1 ring-zinc-900 transition duration-200 focus-within:ring-[#1DB954]/40 sm:flex">
+          <div className="flex items-center gap-3">
+            <label className="flex h-11 w-80 items-center gap-3 rounded-full bg-[#111111] px-4 text-zinc-500 ring-1 ring-zinc-900 transition duration-200 focus-within:ring-[#1DB954]/40">
               <Search size={18} strokeWidth={2} />
               <input
                 className="w-full bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-500"
@@ -513,34 +625,34 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
             <button
               aria-label="Notiser"
-              className="flex size-9 items-center justify-center rounded-full bg-[#111111] text-zinc-300 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.03] hover:bg-[#181818] hover:text-white sm:size-11"
+              className="flex size-11 items-center justify-center rounded-full bg-[#111111] text-zinc-300 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.03] hover:bg-[#181818] hover:text-white"
               type="button"
             >
-              <Bell size={16} strokeWidth={2} />
+              <Bell size={18} strokeWidth={2} />
             </button>
 
             <div className="relative">
               <button
-                className="flex items-center gap-1 rounded-full bg-[#111111] p-1 pr-2 text-xs font-bold text-zinc-200 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.02] hover:bg-[#181818] hover:text-white sm:gap-2 sm:pr-3 sm:text-sm"
+                className="flex items-center gap-2 rounded-full bg-[#111111] p-1 pr-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-900 transition duration-200 hover:scale-[1.02] hover:bg-[#181818] hover:text-white"
                 onClick={() => setIsProfileMenuOpen((isOpen) => !isOpen)}
                 type="button"
               >
                 {profile?.avatar_url ? (
                   <img
                     alt=""
-                    className="size-8 rounded-full object-cover sm:size-9"
+                    className="size-9 rounded-full object-cover"
                     src={profile.avatar_url}
                   />
                 ) : (
-                  <span className="flex size-8 items-center justify-center rounded-full bg-[#1DB954] text-xs font-bold text-black sm:size-9 sm:text-sm">
+                  <span className="flex size-9 items-center justify-center rounded-full bg-[#1DB954] text-sm font-bold text-black">
                     {avatarLetter}
                   </span>
                 )}
-                <ChevronDown size={14} strokeWidth={2} />
+                <ChevronDown size={16} strokeWidth={2} />
               </button>
 
               {isProfileMenuOpen ? (
-                <div className="absolute right-0 top-12 z-20 w-[calc(100vw-2rem)] max-w-80 rounded-xl bg-[#181818] p-2 shadow-2xl shadow-black/50 ring-1 ring-zinc-800 transition duration-200 sm:top-14">
+                <div className="absolute right-0 top-14 z-20 w-80 rounded-xl bg-[#181818] p-2 shadow-2xl shadow-black/50 ring-1 ring-zinc-800 transition duration-200">
                   <div className="border-b border-zinc-800 px-3 py-4">
                     <p className="truncate text-sm font-semibold text-white">
                       {profile?.display_name || "Inget profilnamn"}
@@ -577,7 +689,45 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        {children}
+        <div className="pb-24 md:pb-0">{children}</div>
+
+        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-900 bg-[#050505]/95 px-4 pb-4 pt-2 backdrop-blur md:hidden">
+          <div className="mx-auto grid max-w-md grid-cols-3 gap-2 rounded-2xl bg-[#111111] p-1.5 shadow-2xl shadow-black/50 ring-1 ring-zinc-900">
+            <Link
+              className={`flex flex-col items-center gap-1 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                pathname === "/"
+                  ? "bg-[#1DB954] text-black"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+              href="/"
+            >
+              <Home size={18} strokeWidth={2} />
+              Start
+            </Link>
+            <Link
+              className={`flex flex-col items-center gap-1 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                pathname.startsWith("/episodes")
+                  ? "bg-[#1DB954] text-black"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+              href="/episodes"
+            >
+              <Library size={18} strokeWidth={2} />
+              Avsnitt
+            </Link>
+            <Link
+              className={`flex flex-col items-center gap-1 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                pathname === "/settings"
+                  ? "bg-[#1DB954] text-black"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+              href="/settings"
+            >
+              <Settings size={18} strokeWidth={2} />
+              Inställningar
+            </Link>
+          </div>
+        </nav>
       </div>
     </div>
   );

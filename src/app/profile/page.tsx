@@ -159,7 +159,7 @@ export default function ProfilePage() {
   const label = displayName || user?.email || "Profil";
 
   return (
-    <main className="min-h-screen bg-[#050505] px-4 py-6 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+    <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 sm:gap-8">
         <header className="rounded-2xl bg-[#111111] p-5 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 sm:p-8">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:gap-7">
@@ -181,7 +181,7 @@ export default function ProfilePage() {
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
                 Profil
               </p>
-              <h1 className="mt-3 truncate text-3xl font-semibold tracking-tight text-white sm:text-6xl">
+              <h1 className="mt-3 truncate text-2xl font-semibold tracking-tight text-white sm:text-6xl">
                 {label}
               </h1>
               <p className="mt-4 text-sm text-zinc-400">

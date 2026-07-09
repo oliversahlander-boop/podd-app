@@ -246,7 +246,13 @@ export default function EpisodeDetailPage() {
       .eq("id", params.id)
       .single()
       .then(({ data, error }) => {
-        if (isMounted && !error && data) {
+        if (isMounted && error) {
+          console.error("Kunde inte hämta avsnitt:", error);
+          setMessage(`Kunde inte hämta avsnitt: ${error.message}`);
+          return;
+        }
+
+        if (isMounted && data) {
           const nextEpisode = data as Episode;
 
           setEpisode(nextEpisode);
@@ -288,7 +294,7 @@ export default function EpisodeDetailPage() {
         return;
       }
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("podcast_members")
         .select("role")
         .eq("podcast_id", episode.podcast_id)
@@ -296,6 +302,13 @@ export default function EpisodeDetailPage() {
         .maybeSingle();
 
       if (isMounted) {
+        if (error) {
+          console.error("Kunde inte hämta behörighet:", error);
+          setMessage(`Kunde inte hämta behörighet: ${error.message}`);
+          setCurrentRole("");
+          return;
+        }
+
         const role = (data as { role: string } | null)?.role || "";
         setCurrentRole(role === "member" ? "viewer" : role);
       }
@@ -322,7 +335,8 @@ export default function EpisodeDetailPage() {
     const { error } = await supabase
       .from("episodes")
       .update(values)
-      .eq("id", episode.id);
+      .eq("id", episode.id)
+      .eq("podcast_id", episode.podcast_id);
 
     if (error) {
       console.error("Episode save failed:", error);
@@ -447,7 +461,8 @@ export default function EpisodeDetailPage() {
     const { error } = await supabase
       .from("episodes")
       .update({ links: nextLinks })
-      .eq("id", episode.id);
+      .eq("id", episode.id)
+      .eq("podcast_id", episode.podcast_id);
 
     if (!error) {
       setLinks(nextLinks);
@@ -471,7 +486,8 @@ export default function EpisodeDetailPage() {
     const { error } = await supabase
       .from("episodes")
       .update({ links: nextLinks })
-      .eq("id", episode.id);
+      .eq("id", episode.id)
+      .eq("podcast_id", episode.podcast_id);
 
     if (error) {
       console.error("Saving material failed:", error);
@@ -675,7 +691,7 @@ export default function EpisodeDetailPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] px-4 py-6 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+    <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 sm:gap-8">
         <Link
           className="w-fit rounded-full bg-[#111111] px-4 py-2 text-sm font-semibold text-zinc-300 ring-1 ring-zinc-900 transition hover:bg-[#181818] hover:text-white"
@@ -744,7 +760,7 @@ export default function EpisodeDetailPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
               Avsnittsarbetsyta
             </p>
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-6xl">
+            <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white sm:text-6xl">
               {episode?.title || "Avsnitt"}
             </h1>
             <p className="mt-5 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
@@ -1154,8 +1170,8 @@ export default function EpisodeDetailPage() {
       </div>
 
       {pendingCrop ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6">
-          <div className="w-full max-w-2xl rounded-lg bg-[#181818] p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 sm:p-6">
+          <div className="w-full max-w-2xl rounded-lg bg-[#181818] p-4 sm:p-5">
             <div className="flex items-center justify-between gap-4">
               <h2 className="text-lg font-semibold text-white">
                 Beskär omslagsbild
@@ -1170,7 +1186,7 @@ export default function EpisodeDetailPage() {
               </button>
             </div>
 
-            <div className="relative mt-5 h-96 overflow-hidden rounded-lg bg-black">
+            <div className="relative mt-5 h-72 overflow-hidden rounded-lg bg-black sm:h-96">
               <Cropper
                 aspect={1}
                 crop={crop}
@@ -1215,7 +1231,7 @@ export default function EpisodeDetailPage() {
       ) : null}
 
       {lightboxImage ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 sm:p-6">
           <button
             aria-label="Stäng"
             className="absolute right-6 top-6 rounded-full bg-[#181818] p-3 text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white"

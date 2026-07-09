@@ -69,6 +69,7 @@ export default function EpisodesPage() {
   const [editStatus, setEditStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [currentRole, setCurrentRole] = useState("");
+  const [message, setMessage] = useState("");
   const [activePodcastId, setActivePodcastId] = useState(() => {
     if (typeof window === "undefined") {
       return "";
@@ -92,7 +93,13 @@ export default function EpisodesPage() {
       .eq("podcast_id", activePodcastId)
       .order("created_at", { ascending: false });
 
-    if (!error && data) {
+    if (error) {
+      console.error("Kunde inte hämta avsnitt:", error);
+      setMessage(`Kunde inte hämta avsnitt: ${error.message}`);
+      return;
+    }
+
+    if (data) {
       setEpisodes(data);
     }
   }
@@ -138,6 +145,11 @@ export default function EpisodesPage() {
             : Promise.resolve({ data: null }),
         ]);
 
+      if (isMounted && error) {
+        console.error("Kunde inte hämta avsnitt:", error);
+        setMessage(`Kunde inte hämta avsnitt: ${error.message}`);
+      }
+
       if (isMounted && !error && episodeData) {
         setEpisodes(episodeData);
       }
@@ -166,6 +178,7 @@ export default function EpisodesPage() {
     }
 
     setIsSaving(true);
+    setMessage("");
 
     const { error } = await supabase.from("episodes").insert({
       title: title.trim(),
@@ -174,7 +187,10 @@ export default function EpisodesPage() {
       status: status.trim(),
     });
 
-    if (!error) {
+    if (error) {
+      console.error("Kunde inte skapa avsnitt:", error);
+      setMessage(`Kunde inte skapa avsnitt: ${error.message}`);
+    } else {
       setTitle("");
       setDescription("");
       setStatus("Idé");
@@ -206,6 +222,7 @@ export default function EpisodesPage() {
     }
 
     setIsSaving(true);
+    setMessage("");
 
     const { error } = await supabase
       .from("episodes")
@@ -214,9 +231,13 @@ export default function EpisodesPage() {
         description: editDescription.trim(),
         status: editStatus.trim(),
       })
-      .eq("id", editingId);
+      .eq("id", editingId)
+      .eq("podcast_id", activePodcastId);
 
-    if (!error) {
+    if (error) {
+      console.error("Kunde inte spara avsnitt:", error);
+      setMessage(`Kunde inte spara avsnitt: ${error.message}`);
+    } else {
       cancelEditing();
       await fetchEpisodes();
     }
@@ -229,22 +250,31 @@ export default function EpisodesPage() {
       return;
     }
 
-    const { error } = await supabase.from("episodes").delete().eq("id", id);
+    setMessage("");
 
-    if (!error) {
+    const { error } = await supabase
+      .from("episodes")
+      .delete()
+      .eq("id", id)
+      .eq("podcast_id", activePodcastId);
+
+    if (error) {
+      console.error("Kunde inte ta bort avsnitt:", error);
+      setMessage(`Kunde inte ta bort avsnitt: ${error.message}`);
+    } else {
       await fetchEpisodes();
     }
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] px-4 py-6 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+    <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 sm:gap-9">
         <header className="flex flex-col gap-6 border-b border-zinc-900 pb-8 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
               Bibliotek
             </p>
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-6xl">
+            <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white sm:text-6xl">
               Avsnitt
             </h1>
             <p className="mt-4 text-sm text-zinc-400">
@@ -291,6 +321,12 @@ export default function EpisodesPage() {
               {isSaving ? "Sparar" : "Skapa nästa avsnitt"}
             </button>
           </form>
+        ) : null}
+
+        {message ? (
+          <p className="rounded-2xl bg-[#111111] p-4 text-sm text-zinc-400 ring-1 ring-zinc-900">
+            {message}
+          </p>
         ) : null}
 
         <section className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
@@ -356,7 +392,7 @@ export default function EpisodesPage() {
               ) : (
                 <>
                   {canManageEpisodes ? (
-                  <details className="absolute right-5 top-5 z-10 opacity-0 transition duration-200 group-hover:opacity-100">
+                  <details className="absolute right-4 top-4 z-10 opacity-100 transition duration-200 md:right-5 md:top-5 md:opacity-0 md:group-hover:opacity-100">
                     <summary className="flex size-9 cursor-pointer list-none items-center justify-center rounded-full bg-black/70 text-zinc-200 shadow-lg backdrop-blur transition hover:scale-105 hover:text-white [&::-webkit-details-marker]:hidden">
                       <MoreHorizontal size={18} />
                     </summary>
@@ -425,11 +461,11 @@ export default function EpisodesPage() {
           })}
         </section>
         {episodes.length === 0 ? (
-          <section className="rounded-2xl bg-[#111111] p-10 text-center shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+          <section className="rounded-2xl bg-[#111111] p-6 text-center shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-10">
             <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-[#181818] text-[#1DB954]">
               <FileText size={24} />
             </div>
-            <h2 className="mt-5 text-2xl font-semibold text-white">
+            <h2 className="mt-5 text-xl font-semibold text-white sm:text-2xl">
               Inga avsnitt ännu
             </h2>
             <p className="mt-3 text-sm text-zinc-500">
