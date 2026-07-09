@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { FormEvent, useEffect, useState } from "react";
+import { Trash2, Upload, Users } from "lucide-react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -18,6 +19,30 @@ type PodcastMember = {
   role: string;
   email: string;
 };
+
+const roleOptions = ["owner", "admin", "editor", "viewer"];
+
+function roleLabel(role: string) {
+  return role === "member" ? "viewer" : role;
+}
+
+function roleTone(role: string) {
+  const normalizedRole = roleLabel(role);
+
+  if (normalizedRole === "owner") {
+    return "bg-[#1DB954] text-black";
+  }
+
+  if (normalizedRole === "admin") {
+    return "bg-[#1DB954]/20 text-[#1DB954]";
+  }
+
+  if (normalizedRole === "editor") {
+    return "bg-zinc-700 text-zinc-100";
+  }
+
+  return "bg-zinc-800 text-zinc-400";
+}
 
 export default function SettingsPage() {
   const [activePodcastId, setActivePodcastId] = useState("");
@@ -36,6 +61,10 @@ export default function SettingsPage() {
   const currentMember = members.find((member) => member.user_id === user?.id);
   const owner = members.find((member) => member.role === "owner");
   const isOwner = currentMember?.role === "owner";
+  const canManagePodcast =
+    currentMember?.role === "owner" || currentMember?.role === "admin";
+  const canManageMembers =
+    currentMember?.role === "owner" || currentMember?.role === "admin";
 
   async function fetchPodcast(podcastId: string) {
     const { data, error } = await supabase
@@ -93,7 +122,7 @@ export default function SettingsPage() {
   async function renamePodcast(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!activePodcastId || !podcastName.trim() || !isOwner) {
+    if (!activePodcastId || !podcastName.trim() || !canManagePodcast) {
       return;
     }
 
@@ -126,7 +155,7 @@ export default function SettingsPage() {
   }
 
   async function uploadPodcastThumbnail(file: File | null) {
-    if (!file || !activePodcastId || !podcast || !isOwner) {
+    if (!file || !activePodcastId || !podcast || !canManagePodcast) {
       return;
     }
 
@@ -149,10 +178,9 @@ export default function SettingsPage() {
       .from("episodes-material")
       .getPublicUrl(filePath);
 
-    const thumbnailUrl = publicUrlData.publicUrl;
     const { data, error } = await supabase
       .from("podcasts")
-      .update({ thumbnail_url: thumbnailUrl })
+      .update({ thumbnail_url: publicUrlData.publicUrl })
       .eq("id", activePodcastId)
       .select("id,name,thumbnail_url")
       .single();
@@ -204,7 +232,7 @@ export default function SettingsPage() {
   async function addMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!activePodcastId || !email.trim()) {
+    if (!activePodcastId || !email.trim() || !canManageMembers) {
       return;
     }
 
@@ -228,7 +256,12 @@ export default function SettingsPage() {
   }
 
   async function removeMember(member: PodcastMember) {
-    if (!activePodcastId || member.user_id === user?.id || !isOwner) {
+    if (
+      !activePodcastId ||
+      member.user_id === user?.id ||
+      !canManageMembers ||
+      (member.role === "owner" && !isOwner)
+    ) {
       return;
     }
 
@@ -244,6 +277,35 @@ export default function SettingsPage() {
     }
 
     await fetchMembers(activePodcastId);
+  }
+
+  async function updateMemberRole(member: PodcastMember, nextRole: string) {
+    if (!activePodcastId || !isOwner || member.user_id === user?.id) {
+      return;
+    }
+
+    setMessage("");
+
+    const { error } = await supabase
+      .from("podcast_members")
+      .update({ role: nextRole })
+      .eq("podcast_id", activePodcastId)
+      .eq("user_id", member.user_id);
+
+    if (error) {
+      console.error("Member role update failed:", error);
+      setMessage(error.message);
+      return;
+    }
+
+    setMembers((currentMembers) =>
+      currentMembers.map((currentMember) =>
+        currentMember.user_id === member.user_id
+          ? { ...currentMember, role: nextRole }
+          : currentMember,
+      ),
+    );
+    setMessage("Roll sparad.");
   }
 
   async function leavePodcast() {
@@ -267,30 +329,108 @@ export default function SettingsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#050505] px-6 py-8 text-zinc-100 sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-        <header className="border-b border-zinc-900 pb-6">
-          <p className="text-sm font-semibold tracking-[0.2em] text-[#1DB954] uppercase">
-            Podd
+    <main className="min-h-screen bg-[#050505] px-6 py-10 text-zinc-100 sm:px-10 lg:px-14">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
+        <header className="border-b border-zinc-900 pb-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
+            Workspace
           </p>
-          <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+          <h1 className="mt-4 text-5xl font-semibold tracking-tight text-white sm:text-6xl">
             Inställningar
           </h1>
+          <p className="mt-4 text-sm text-zinc-400">
+            Hantera podcastens namn, artwork, medlemmar och åtkomst.
+          </p>
         </header>
 
-        <section className="rounded-lg bg-[#181818] p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        {message ? (
+          <p className="rounded-2xl bg-[#111111] p-4 text-sm text-zinc-400 ring-1 ring-zinc-900">
+            {message}
+          </p>
+        ) : null}
+
+        <section className="grid gap-6 lg:grid-cols-[0.75fr_1.25fr]">
+          <aside className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+            {podcast?.thumbnail_url ? (
+              <img
+                alt=""
+                className="aspect-square w-full rounded-2xl object-cover shadow-2xl shadow-black/40"
+                src={podcast.thumbnail_url}
+              />
+            ) : (
+              <div className="flex aspect-square w-full items-center justify-center rounded-2xl bg-[#181818] text-6xl font-bold text-zinc-400">
+                {(podcast?.name || "P").charAt(0).toUpperCase()}
+              </div>
+            )}
+            <h2 className="mt-5 truncate text-2xl font-semibold text-white">
+              {podcast?.name || "Podcast"}
+            </h2>
+            <p className="mt-2 text-sm text-zinc-500">
+              Owner: {owner?.email || "Okänd"}
+            </p>
+          </aside>
+
+          <div className="grid gap-6">
+            <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+              <h2 className="text-2xl font-semibold text-white">General</h2>
+              <form
+                className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]"
+                onSubmit={renamePodcast}
+              >
+                <input
+                  className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10 disabled:opacity-60"
+                  disabled={!canManagePodcast}
+                  onChange={(event) => setPodcastName(event.target.value)}
+                  placeholder="Podcastnamn"
+                  type="text"
+                  value={podcastName || podcast?.name || ""}
+                />
+                <button
+                  className="rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition duration-200 hover:scale-[1.02] hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!canManagePodcast || isSavingPodcast}
+                  type="submit"
+                >
+                  {isSavingPodcast ? "Sparar..." : "Spara namn"}
+                </button>
+              </form>
+            </section>
+
+            <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+              <h2 className="text-2xl font-semibold text-white">Artwork</h2>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">
+                Visas på startsidan och i podcast-listan.
+              </p>
+              <label className="mt-6 inline-flex cursor-pointer items-center gap-2 rounded-full bg-[#181818] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition duration-200 hover:bg-[#202020] hover:text-white has-disabled:cursor-not-allowed has-disabled:opacity-60">
+                <Upload size={16} />
+                {isUploadingThumbnail ? "Laddar upp..." : "Ladda upp bild"}
+                <input
+                  accept="image/*"
+                  className="sr-only"
+                  disabled={!canManagePodcast || isUploadingThumbnail}
+                  onChange={(event) =>
+                    uploadPodcastThumbnail(event.target.files?.[0] || null)
+                  }
+                  type="file"
+                />
+              </label>
+            </section>
+          </div>
+        </section>
+
+        <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-white">
-                Podcast Settings
+              <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
+                <Users size={22} />
+                Members
               </h2>
               <p className="mt-2 text-sm text-zinc-400">
-                Owner: {owner?.email || "Okänd"}
+                Lägg till och hantera teamet.
               </p>
             </div>
             {!isOwner ? (
               <button
-                className="rounded-full bg-[#111111] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white"
+                className="rounded-full bg-[#181818] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white"
                 onClick={leavePodcast}
                 type="button"
               >
@@ -299,114 +439,20 @@ export default function SettingsPage() {
             ) : null}
           </div>
 
-          <form
-            className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]"
-            onSubmit={renamePodcast}
-          >
-            <input
-              className="rounded-lg border border-zinc-800 bg-[#111111] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
-              disabled={!isOwner}
-              onChange={(event) => setPodcastName(event.target.value)}
-              placeholder="Podcastnamn"
-              type="text"
-              value={podcastName || podcast?.name || ""}
-            />
-            <button
-              className="rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={!isOwner || isSavingPodcast}
-              type="submit"
-            >
-              {isSavingPodcast ? "Sparar..." : "Spara namn"}
-            </button>
-          </form>
-
-          <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center">
-            {podcast?.thumbnail_url ? (
-              <img
-                alt=""
-                className="size-20 rounded-lg object-cover"
-                src={podcast.thumbnail_url}
-              />
-            ) : (
-              <div className="flex size-20 items-center justify-center rounded-lg bg-[#111111] text-2xl font-bold text-zinc-300">
-                {(podcast?.name || "P").charAt(0).toUpperCase()}
-              </div>
-            )}
-
-            <label className="inline-flex w-fit cursor-pointer rounded-full bg-[#111111] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white has-disabled:cursor-not-allowed has-disabled:opacity-60">
-              {isUploadingThumbnail ? "Laddar upp..." : "Ladda upp bild"}
-              <input
-                accept="image/*"
-                className="sr-only"
-                disabled={!isOwner || isUploadingThumbnail}
-                onChange={(event) =>
-                  uploadPodcastThumbnail(event.target.files?.[0] || null)
-                }
-                type="file"
-              />
-            </label>
-          </div>
-
-          {isOwner ? (
-            <div className="mt-4">
-              <button
-                className="rounded-full bg-red-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-red-500"
-                onClick={() => setShowDeleteConfirm(true)}
-                type="button"
-              >
-                Ta bort podcast
-              </button>
-            </div>
-          ) : null}
-        </section>
-
-        {showDeleteConfirm ? (
-          <section className="rounded-lg bg-[#181818] p-6 ring-1 ring-red-900/40">
-            <h2 className="text-xl font-semibold text-white">
-              Bekräfta borttagning
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-zinc-400">
-              Detta tar bort podcasten, alla medlemmar och alla avsnitt i
-              podcasten.
-            </p>
-            <div className="mt-5 flex flex-wrap gap-3">
-              <button
-                className="rounded-full bg-red-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isDeletingPodcast}
-                onClick={deletePodcast}
-                type="button"
-              >
-                {isDeletingPodcast ? "Tar bort..." : "Ja, ta bort podcast"}
-              </button>
-              <button
-                className="rounded-full bg-[#111111] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white"
-                disabled={isDeletingPodcast}
-                onClick={() => setShowDeleteConfirm(false)}
-                type="button"
-              >
-                Avbryt
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        <section className="rounded-lg bg-[#181818] p-6">
-          <h2 className="text-xl font-semibold text-white">Members</h2>
-
-          {isOwner ? (
+          {canManageMembers ? (
             <form
-              className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]"
+              className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]"
               onSubmit={addMember}
             >
               <input
-                className="rounded-lg border border-zinc-800 bg-[#111111] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="E-post"
                 type="email"
                 value={email}
               />
               <button
-                className="rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition duration-200 hover:scale-[1.02] hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isSaving}
                 type="submit"
               >
@@ -415,37 +461,107 @@ export default function SettingsPage() {
             </form>
           ) : null}
 
-          {message ? (
-            <p className="mt-4 text-sm leading-6 text-zinc-400">{message}</p>
-          ) : null}
-
-          <div className="mt-8 space-y-3">
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
             {members.map((member) => (
               <div
-                className="flex items-center justify-between gap-4 rounded-lg bg-[#111111] p-4"
+                className="flex items-center justify-between gap-4 rounded-xl bg-[#181818] p-4"
                 key={member.user_id}
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-white">
-                    {member.email}
-                  </p>
-                  <p className="mt-1 text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
-                    {member.role}
-                  </p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex size-10 items-center justify-center rounded-full bg-[#1DB954] text-sm font-bold text-black">
+                    {member.email.charAt(0).toUpperCase()}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-white">
+                      {member.email}
+                    </p>
+                    <span
+                      className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] ${roleTone(
+                        member.role,
+                      )}`}
+                    >
+                      {roleLabel(member.role)}
+                    </span>
+                  </div>
                 </div>
-                {isOwner ? (
-                  <button
-                    className="rounded-full bg-[#181818] px-4 py-2 text-xs font-bold text-zinc-300 ring-1 ring-zinc-800 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    disabled={member.user_id === user?.id}
-                    onClick={() => removeMember(member)}
-                    type="button"
-                  >
-                    Ta bort
-                  </button>
+                {canManageMembers ? (
+                  <div className="flex shrink-0 items-center gap-2">
+                    <select
+                      className="rounded-full border border-zinc-800 bg-[#111111] px-3 py-2 text-xs font-bold text-zinc-200 outline-none transition focus:border-[#1DB954] disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={!isOwner || member.user_id === user?.id}
+                      onChange={(event) =>
+                        updateMemberRole(member, event.target.value)
+                      }
+                      value={roleLabel(member.role)}
+                    >
+                      {roleOptions.map((role) => (
+                        <option className="bg-[#111111] text-white" key={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="rounded-full bg-[#111111] px-4 py-2 text-xs font-bold text-zinc-300 ring-1 ring-zinc-800 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={
+                        member.user_id === user?.id ||
+                        (member.role === "owner" && !isOwner)
+                      }
+                      onClick={() => removeMember(member)}
+                      type="button"
+                    >
+                      Ta bort
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-red-950/50">
+          <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
+            <Trash2 size={22} />
+            Danger Zone
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+            Detta tar bort podcasten, alla medlemmar och alla avsnitt i
+            podcasten.
+          </p>
+
+          {showDeleteConfirm ? (
+            <div className="mt-6 rounded-xl bg-[#181818] p-5 ring-1 ring-red-900/40">
+              <p className="text-sm font-medium text-white">
+                Är du säker på att du vill ta bort podcasten?
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  className="rounded-full bg-red-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isDeletingPodcast}
+                  onClick={deletePodcast}
+                  type="button"
+                >
+                  {isDeletingPodcast ? "Tar bort..." : "Ja, ta bort podcast"}
+                </button>
+                <button
+                  className="rounded-full bg-[#111111] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white"
+                  disabled={isDeletingPodcast}
+                  onClick={() => setShowDeleteConfirm(false)}
+                  type="button"
+                >
+                  Avbryt
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              className="mt-6 rounded-full bg-red-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!isOwner}
+              onClick={() => setShowDeleteConfirm(true)}
+              type="button"
+            >
+              Ta bort podcast
+            </button>
+          )}
         </section>
       </div>
     </main>

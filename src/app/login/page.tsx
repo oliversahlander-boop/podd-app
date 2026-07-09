@@ -56,12 +56,12 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#050505] px-6 text-zinc-100">
-      <section className="w-full max-w-md rounded-lg bg-[#111111] p-8">
-        <p className="text-sm font-semibold tracking-[0.2em] text-[#1DB954] uppercase">
+    <main className="flex min-h-screen items-center justify-center bg-[#050505] px-6 py-10 text-zinc-100">
+      <section className="w-full max-w-md rounded-2xl bg-[#111111] p-8 shadow-2xl shadow-black/40 ring-1 ring-zinc-900">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
           Podd
         </p>
-        <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white">
+        <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white">
           {mode === "login" ? "Logga in" : "Skapa konto"}
         </h1>
         <p className="mt-3 text-sm leading-6 text-zinc-400">
@@ -72,7 +72,7 @@ export default function LoginPage() {
 
         <form className="mt-8 flex flex-col gap-4" onSubmit={handleSubmit}>
           <input
-            className="rounded-lg border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
+            className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
             onChange={(event) => setEmail(event.target.value)}
             placeholder="E-post"
             required
@@ -80,7 +80,7 @@ export default function LoginPage() {
             value={email}
           />
           <input
-            className="rounded-lg border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
+            className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Lösenord"
             required
@@ -90,11 +90,13 @@ export default function LoginPage() {
           />
 
           {message ? (
-            <p className="text-sm leading-6 text-zinc-400">{message}</p>
+            <p className="rounded-xl bg-[#181818] p-4 text-sm leading-6 text-zinc-400">
+              {message}
+            </p>
           ) : null}
 
           <button
-            className="rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition duration-200 hover:scale-[1.02] hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isLoading}
             type="submit"
           >
@@ -105,7 +107,7 @@ export default function LoginPage() {
                 : "Skapa konto"}
           </button>
           <button
-            className="rounded-full bg-[#181818] px-6 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full bg-[#181818] px-6 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition duration-200 hover:bg-[#202020] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isLoading}
             onClick={() => switchMode(mode === "login" ? "signup" : "login")}
             type="button"

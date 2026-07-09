@@ -4,7 +4,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, FileText, LinkIcon, Plus, Settings } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  FileText,
+  LinkIcon,
+  Plus,
+  Settings,
+  Users,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 type Podcast = {
@@ -19,6 +29,13 @@ type Episode = {
   status: string | null;
   created_at: string;
   links: string | null;
+  notes: string | null;
+};
+
+type Member = {
+  email: string;
+  role: string;
+  user_id: string;
 };
 
 type MaterialItem = {
@@ -79,10 +96,24 @@ function getRecentMaterial(episodes: Episode[]) {
   );
 }
 
+function statusTone(status: string | null) {
+  if (status === "Publicerad") {
+    return "bg-[#1DB954] text-black";
+  }
+
+  if (status === "Klar för publicering") {
+    return "bg-[#1DB954]/20 text-[#1DB954]";
+  }
+
+  return "bg-zinc-800 text-zinc-300";
+}
+
 export default function Home() {
   const [activePodcastId, setActivePodcastId] = useState("");
   const [podcast, setPodcast] = useState<Podcast | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     function loadActivePodcastId() {
@@ -106,22 +137,32 @@ export default function Home() {
       if (!activePodcastId) {
         setPodcast(null);
         setEpisodes([]);
+        setMembers([]);
+        setIsLoading(false);
         return;
       }
 
-      const [{ data: podcastData }, { data: episodeData }] =
-        await Promise.all([
-          supabase
-            .from("podcasts")
-            .select("id,name,thumbnail_url")
-            .eq("id", activePodcastId)
-            .single(),
-          supabase
-            .from("episodes")
-            .select("id,title,status,created_at,links")
-            .eq("podcast_id", activePodcastId)
-            .order("created_at", { ascending: false }),
-        ]);
+      setIsLoading(true);
+
+      const [
+        { data: podcastData },
+        { data: episodeData },
+        { data: memberData },
+      ] = await Promise.all([
+        supabase
+          .from("podcasts")
+          .select("id,name,thumbnail_url")
+          .eq("id", activePodcastId)
+          .single(),
+        supabase
+          .from("episodes")
+          .select("id,title,status,created_at,links,notes")
+          .eq("podcast_id", activePodcastId)
+          .order("created_at", { ascending: false }),
+        supabase.rpc("get_podcast_members", {
+          target_podcast_id: activePodcastId,
+        }),
+      ]);
 
       if (!isMounted) {
         return;
@@ -129,6 +170,8 @@ export default function Home() {
 
       setPodcast(podcastData);
       setEpisodes((episodeData as Episode[] | null) || []);
+      setMembers((memberData as Member[] | null) || []);
+      setIsLoading(false);
     }
 
     loadOverview();
@@ -139,187 +182,321 @@ export default function Home() {
   }, [activePodcastId]);
 
   const latestEpisodes = episodes.slice(0, 5);
+  const continueEpisodes = episodes
+    .filter((episode) => episode.status !== "Publicerad")
+    .slice(0, 3);
+  const recentMaterial = useMemo(
+    () => getRecentMaterial(episodes).slice(0, 4),
+    [episodes],
+  );
   const fileCount = useMemo(
     () =>
       episodes.reduce((total, episode) => total + getFileCount(episode.links), 0),
     [episodes],
   );
-  const recentMaterial = useMemo(
-    () => getRecentMaterial(episodes).slice(0, 5),
-    [episodes],
-  );
+  const publishedCount = episodes.filter(
+    (episode) => episode.status === "Publicerad",
+  ).length;
 
   return (
-    <main className="min-h-screen bg-[#050505] px-6 py-8 text-zinc-100 sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10">
-        <header className="flex flex-col gap-6 border-b border-zinc-900 pb-8 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex items-end gap-6">
-            {podcast?.thumbnail_url ? (
-              <img
-                alt=""
-                className="size-28 rounded-lg object-cover shadow-2xl sm:size-36"
-                src={podcast.thumbnail_url}
-              />
-            ) : (
-              <div className="flex size-28 items-center justify-center rounded-lg bg-[#181818] text-5xl font-bold text-zinc-300 shadow-2xl sm:size-36">
-                {(podcast?.name || "P").charAt(0).toUpperCase()}
-              </div>
-            )}
+    <main className="min-h-screen bg-[#050505] px-6 py-10 text-zinc-100 sm:px-10 lg:px-14">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-10">
+        <header className="rounded-2xl bg-[#111111] p-6 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 sm:p-8">
+          <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-end">
+              {podcast?.thumbnail_url ? (
+                <img
+                  alt=""
+                  className="size-36 rounded-2xl object-cover shadow-2xl shadow-black/50"
+                  src={podcast.thumbnail_url}
+                />
+              ) : (
+                <div className="flex size-36 items-center justify-center rounded-2xl bg-[#181818] text-6xl font-bold text-zinc-300 shadow-2xl shadow-black/40">
+                  {(podcast?.name || "P").charAt(0).toUpperCase()}
+                </div>
+              )}
 
-            <div>
-              <p className="text-sm font-semibold tracking-[0.2em] text-[#1DB954] uppercase">
-                Start
-              </p>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white sm:text-6xl">
-                {podcast?.name || "Podd"}
-              </h1>
-              <p className="mt-4 text-sm text-zinc-400">
-                {episodes.length} avsnitt · {fileCount} filer ·{" "}
-                {recentMaterial.length} material
-              </p>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
+                  Podcast overview
+                </p>
+                <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white sm:text-6xl">
+                  {podcast?.name || "Podd"}
+                </h1>
+                <p className="mt-4 max-w-2xl text-sm leading-6 text-zinc-400">
+                  Överblick över produktion, material och nästa steg.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 sm:min-w-96">
+              {[
+                ["Avsnitt", episodes.length],
+                ["Publicerade", publishedCount],
+                ["Material", fileCount],
+              ].map(([label, value]) => (
+                <div
+                  className="rounded-xl bg-[#181818] p-4 ring-1 ring-zinc-900"
+                  key={label}
+                >
+                  <p className="text-2xl font-semibold text-white">{value}</p>
+                  <p className="mt-1 text-xs font-medium text-zinc-500">
+                    {label}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </header>
 
-        <section>
-          <div className="mb-5 flex items-center justify-between gap-4">
-            <h2 className="text-2xl font-semibold text-white">
-              Senaste avsnitt
-            </h2>
-            <Link
-              className="text-sm font-bold text-[#1DB954] hover:text-[#22d760]"
-              href="/episodes"
-            >
-              Visa alla
-            </Link>
-          </div>
+        {isLoading ? (
+          <section className="grid gap-6 lg:grid-cols-3">
+            {[0, 1, 2].map((item) => (
+              <div
+                className="h-48 animate-pulse rounded-2xl bg-[#111111]"
+                key={item}
+              />
+            ))}
+          </section>
+        ) : (
+          <>
+            <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+              <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-2xl font-semibold text-white">
+                    Continue Working
+                  </h2>
+                  <Clock3 className="text-zinc-500" size={20} />
+                </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            {latestEpisodes.map((episode) => {
-              const thumbnail = getThumbnail(episode.links);
-
-              return (
-                <Link
-                  className="rounded-lg bg-[#181818] p-3 transition hover:bg-[#202020]"
-                  href={`/episodes/${episode.id}`}
-                  key={episode.id}
-                >
-                  {thumbnail ? (
-                    <img
-                      alt=""
-                      className="aspect-square w-full rounded object-cover"
-                      src={thumbnail}
-                    />
-                  ) : (
-                    <div className="flex aspect-square w-full items-center justify-center rounded bg-[#111111] text-3xl font-bold text-zinc-500">
-                      {episode.title.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <h3 className="mt-4 truncate text-sm font-semibold text-white">
-                    {episode.title}
-                  </h3>
-                  <p className="mt-2 truncate text-xs font-medium text-zinc-500">
-                    {episode.status || "Idé"}
-                  </p>
-                </Link>
-              );
-            })}
-          </div>
-
-          {latestEpisodes.length === 0 ? (
-            <p className="text-sm text-zinc-500">Inga avsnitt ännu.</p>
-          ) : null}
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
-          <div>
-            <h2 className="text-2xl font-semibold text-white">Snabbstart</h2>
-            <div className="mt-5 grid gap-3">
-              <Link
-                className="flex items-center justify-between rounded-lg bg-[#181818] px-4 py-4 text-sm font-semibold text-white transition hover:bg-[#202020]"
-                href="/episodes"
-              >
-                <span className="flex items-center gap-3">
-                  <Plus size={18} strokeWidth={2} />
-                  Skapa avsnitt
-                </span>
-                <ArrowRight size={18} strokeWidth={2} />
-              </Link>
-              <Link
-                className="flex items-center justify-between rounded-lg bg-[#181818] px-4 py-4 text-sm font-semibold text-white transition hover:bg-[#202020]"
-                href="/episodes"
-              >
-                <span className="flex items-center gap-3">
-                  <FileText size={18} strokeWidth={2} />
-                  Gå till avsnitt
-                </span>
-                <ArrowRight size={18} strokeWidth={2} />
-              </Link>
-              <Link
-                className="flex items-center justify-between rounded-lg bg-[#181818] px-4 py-4 text-sm font-semibold text-white transition hover:bg-[#202020]"
-                href="/settings"
-              >
-                <span className="flex items-center gap-3">
-                  <Settings size={18} strokeWidth={2} />
-                  Inställningar
-                </span>
-                <ArrowRight size={18} strokeWidth={2} />
-              </Link>
-            </div>
-          </div>
-
-          <div>
-            <h2 className="text-2xl font-semibold text-white">
-              Material nyligen
-            </h2>
-            <div className="mt-5 space-y-3">
-              {recentMaterial.map((item: MaterialItem) => (
-                <a
-                  className="flex items-center justify-between gap-4 rounded-lg bg-[#181818] px-4 py-4 transition hover:bg-[#202020]"
-                  href={item.url}
-                  key={`${item.episodeId}-${item.url}-${item.name}`}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  <span className="flex min-w-0 items-center gap-3">
-                    {item.type === "file" ? (
-                      <FileText
-                        className="shrink-0 text-[#1DB954]"
+                <div className="mt-6 grid gap-3">
+                  {continueEpisodes.map((episode) => (
+                    <Link
+                      className="group flex items-center gap-4 rounded-xl bg-[#181818] p-3 transition duration-200 hover:-translate-y-0.5 hover:bg-[#202020]"
+                      href={`/episodes/${episode.id}`}
+                      key={episode.id}
+                    >
+                      {getThumbnail(episode.links) ? (
+                        <img
+                          alt=""
+                          className="size-14 rounded-lg object-cover"
+                          src={getThumbnail(episode.links)}
+                        />
+                      ) : (
+                        <div className="flex size-14 items-center justify-center rounded-lg bg-[#111111] text-lg font-bold text-zinc-500">
+                          {episode.title.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-white">
+                          {episode.title}
+                        </span>
+                        <span className="mt-1 block text-xs text-zinc-500">
+                          {episode.status || "Idé"}
+                        </span>
+                      </span>
+                      <ArrowRight
+                        className="text-zinc-600 transition group-hover:text-white"
                         size={18}
-                        strokeWidth={2}
+                      />
+                    </Link>
+                  ))}
+                </div>
+
+                {continueEpisodes.length === 0 ? (
+                  <div className="mt-6 rounded-xl bg-[#181818] p-6 text-sm text-zinc-500">
+                    Inget pågående avsnitt just nu.
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+                <h2 className="text-2xl font-semibold text-white">
+                  Recent Activity
+                </h2>
+                <div className="mt-6 space-y-4">
+                  {latestEpisodes.slice(0, 4).map((episode) => (
+                    <div className="flex gap-3" key={episode.id}>
+                      <span className="mt-1 flex size-8 shrink-0 items-center justify-center rounded-full bg-[#181818] text-[#1DB954]">
+                        <CheckCircle2 size={16} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-white">
+                          {episode.title}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Status: {episode.status || "Idé"}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <div className="mb-5 flex items-center justify-between gap-4">
+                <h2 className="text-2xl font-semibold text-white">
+                  Recent Episodes
+                </h2>
+                <Link
+                  className="text-sm font-bold text-[#1DB954] transition hover:text-[#22d760]"
+                  href="/episodes"
+                >
+                  Visa alla
+                </Link>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                {latestEpisodes.map((episode) => (
+                  <Link
+                    className="group rounded-2xl bg-[#181818] p-3 shadow-lg shadow-black/20 transition duration-200 hover:-translate-y-1 hover:bg-[#202020]"
+                    href={`/episodes/${episode.id}`}
+                    key={episode.id}
+                  >
+                    {getThumbnail(episode.links) ? (
+                      <img
+                        alt=""
+                        className="aspect-square w-full rounded-xl object-cover shadow-lg shadow-black/30 transition duration-300 group-hover:scale-[1.02]"
+                        src={getThumbnail(episode.links)}
                       />
                     ) : (
-                      <LinkIcon
-                        className="shrink-0 text-[#1DB954]"
-                        size={18}
-                        strokeWidth={2}
-                      />
+                      <div className="flex aspect-square w-full items-center justify-center rounded-xl bg-[#111111] text-3xl font-bold text-zinc-500">
+                        {episode.title.charAt(0).toUpperCase()}
+                      </div>
                     )}
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold text-white">
-                        {item.name}
+                    <h3 className="mt-4 truncate text-sm font-semibold text-white">
+                      {episode.title}
+                    </h3>
+                    <span
+                      className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${statusTone(
+                        episode.status,
+                      )}`}
+                    >
+                      {episode.status || "Idé"}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+
+            <section className="grid gap-6 lg:grid-cols-3">
+              <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+                <h2 className="text-2xl font-semibold text-white">
+                  Quick Actions
+                </h2>
+                <div className="mt-6 grid gap-3">
+                  {[
+                    ["Skapa avsnitt", "/episodes", Plus],
+                    ["Gå till avsnitt", "/episodes", FileText],
+                    ["Inställningar", "/settings", Settings],
+                  ].map(([label, href, Icon]) => (
+                    <Link
+                      className="flex items-center justify-between rounded-xl bg-[#181818] px-4 py-4 text-sm font-semibold text-white transition duration-200 hover:bg-[#202020]"
+                      href={href as string}
+                      key={label as string}
+                    >
+                      <span className="flex items-center gap-3">
+                        <Icon size={18} />
+                        {label as string}
                       </span>
-                      <span className="mt-1 block truncate text-xs text-zinc-500">
-                        {item.episodeTitle}
+                      <ArrowRight size={18} />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+                <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
+                  <Users size={22} />
+                  Members
+                </h2>
+                <div className="mt-6 space-y-3">
+                  {members.slice(0, 5).map((member) => (
+                    <div
+                      className="flex items-center gap-3 rounded-xl bg-[#181818] p-3"
+                      key={member.user_id}
+                    >
+                      <span className="flex size-9 items-center justify-center rounded-full bg-[#1DB954] text-sm font-bold text-black">
+                        {member.email.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-white">
+                          {member.email}
+                        </span>
+                        <span className="text-xs text-zinc-500">
+                          {member.role}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+                <h2 className="flex items-center gap-2 text-2xl font-semibold text-white">
+                  <CalendarDays size={22} />
+                  Upcoming Tasks
+                </h2>
+                <div className="mt-6 space-y-3">
+                  {[
+                    "Välj nästa avsnitt att spela in",
+                    "Gå igenom material",
+                    "Uppdatera anteckningar",
+                  ].map((task) => (
+                    <div
+                      className="flex items-center gap-3 rounded-xl bg-[#181818] p-3 text-sm font-medium text-zinc-300"
+                      key={task}
+                    >
+                      <span className="size-2 rounded-full bg-[#1DB954]" />
+                      {task}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+              <h2 className="text-2xl font-semibold text-white">
+                Material nyligen
+              </h2>
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {recentMaterial.map((item: MaterialItem) => (
+                  <a
+                    className="flex items-center justify-between gap-4 rounded-xl bg-[#181818] px-4 py-4 transition duration-200 hover:bg-[#202020]"
+                    href={item.url}
+                    key={`${item.episodeId}-${item.url}-${item.name}`}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      {item.type === "file" ? (
+                        <FileText className="shrink-0 text-[#1DB954]" size={18} />
+                      ) : (
+                        <LinkIcon className="shrink-0 text-[#1DB954]" size={18} />
+                      )}
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-white">
+                          {item.name}
+                        </span>
+                        <span className="mt-1 block truncate text-xs text-zinc-500">
+                          {item.episodeTitle}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                  <ArrowRight
-                    className="shrink-0 text-zinc-500"
-                    size={18}
-                    strokeWidth={2}
-                  />
-                </a>
-              ))}
-            </div>
+                    <ArrowRight className="shrink-0 text-zinc-500" size={18} />
+                  </a>
+                ))}
+              </div>
 
-            {recentMaterial.length === 0 ? (
-              <p className="mt-5 text-sm text-zinc-500">
-                Inget material sparat ännu.
-              </p>
-            ) : null}
-          </div>
-        </section>
+              {recentMaterial.length === 0 ? (
+                <p className="mt-5 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
+                  Inget material sparat ännu.
+                </p>
+              ) : null}
+            </section>
+          </>
+        )}
       </div>
     </main>
   );

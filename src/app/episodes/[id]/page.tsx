@@ -7,16 +7,21 @@ import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Cropper, { Area } from "react-easy-crop";
 import {
+  CalendarDays,
+  CheckCircle2,
   ExternalLink,
   FileText,
   Headphones,
   ImageIcon,
   LinkIcon,
   Upload,
+  UserRound,
   Video,
   X,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+
+type ChecklistState = Record<string, boolean>;
 
 type Episode = {
   id: string;
@@ -25,6 +30,15 @@ type Episode = {
   status: string | null;
   notes: string | null;
   links: string | null;
+  podcast_id: string | null;
+  script: string | null;
+  checklist_state: ChecklistState | null;
+  responsible_person: string | null;
+  recording_date: string | null;
+  spotify_link: string | null;
+  youtube_link: string | null;
+  tiktok_link: string | null;
+  publish_date: string | null;
 };
 
 type MaterialFile = {
@@ -40,7 +54,6 @@ type PendingCrop = {
   url: string;
 };
 
-const sections = ["Översikt", "Checklista"];
 const filePrefix = "file|";
 const thumbnailPrefix = "thumbnail|";
 const statusOptions = [
@@ -51,6 +64,14 @@ const statusOptions = [
   "Redigering",
   "Klar för publicering",
   "Publicerad",
+];
+const checklistItems = [
+  "Research klar",
+  "Manus klart",
+  "Material klart",
+  "Inspelat",
+  "Redigerat",
+  "Publicerat",
 ];
 
 function getFileName(url: string) {
@@ -92,39 +113,10 @@ function isPdf(type: string, name: string) {
   return type === "application/pdf" || name.toLowerCase().endsWith(".pdf");
 }
 
-function getFileLabel(file: MaterialFile) {
-  if (isImage(file.type)) {
-    return "Bild";
-  }
-
-  if (isVideo(file.type)) {
-    return "Video";
-  }
-
-  if (isAudio(file.type)) {
-    return "Ljud";
-  }
-
-  if (isPdf(file.type, file.name)) {
-    return "PDF";
-  }
-
-  return "Fil";
-}
-
-function getFileIcon(file: MaterialFile) {
-  if (isImage(file.type)) {
-    return <ImageIcon size={18} />;
-  }
-
-  if (isVideo(file.type)) {
-    return <Video size={18} />;
-  }
-
-  if (isAudio(file.type)) {
-    return <Headphones size={18} />;
-  }
-
+function materialIcon(file: MaterialFile) {
+  if (isImage(file.type)) return <ImageIcon size={18} />;
+  if (isVideo(file.type)) return <Video size={18} />;
+  if (isAudio(file.type)) return <Headphones size={18} />;
   return <FileText size={18} />;
 }
 
@@ -180,15 +172,23 @@ async function getCroppedImage(file: File, imageUrl: string, crop: Area) {
 export default function EpisodeDetailPage() {
   const params = useParams<{ id: string }>();
   const [episode, setEpisode] = useState<Episode | null>(null);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [status, setStatus] = useState("Idé");
+  const [responsiblePerson, setResponsiblePerson] = useState("");
+  const [recordingDate, setRecordingDate] = useState("");
+  const [script, setScript] = useState("");
   const [notes, setNotes] = useState("");
   const [links, setLinks] = useState("");
   const [linkInput, setLinkInput] = useState("");
-  const [isEditingEpisode, setIsEditingEpisode] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editStatus, setEditStatus] = useState("Idé");
+  const [checklistState, setChecklistState] = useState<ChecklistState>({});
+  const [spotifyLink, setSpotifyLink] = useState("");
+  const [youtubeLink, setYoutubeLink] = useState("");
+  const [tiktokLink, setTiktokLink] = useState("");
+  const [publishDate, setPublishDate] = useState("");
+  const [currentRole, setCurrentRole] = useState("");
+  const [message, setMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [isSavingEpisode, setIsSavingEpisode] = useState(false);
   const [isSavingLinks, setIsSavingLinks] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<MaterialFile | null>(null);
@@ -211,23 +211,47 @@ export default function EpisodeDetailPage() {
     (line) =>
       !line.startsWith(filePrefix) && !line.startsWith(thumbnailPrefix),
   );
+  const imageFiles = savedFiles.filter((file) => isImage(file.type));
+  const pdfFiles = savedFiles.filter((file) => isPdf(file.type, file.name));
+  const videoFiles = savedFiles.filter((file) => isVideo(file.type));
+  const audioFiles = savedFiles.filter((file) => isAudio(file.type));
+  const otherFiles = savedFiles.filter(
+    (file) =>
+      !isImage(file.type) &&
+      !isPdf(file.type, file.name) &&
+      !isVideo(file.type) &&
+      !isAudio(file.type),
+  );
+  const canManageEpisode = ["owner", "admin", "editor"].includes(currentRole);
 
   useEffect(() => {
     let isMounted = true;
 
     supabase
       .from("episodes")
-      .select("id,title,description,status,notes,links")
+      .select(
+        "id,title,description,status,notes,links,podcast_id,script,checklist_state,responsible_person,recording_date,spotify_link,youtube_link,tiktok_link,publish_date",
+      )
       .eq("id", params.id)
       .single()
       .then(({ data, error }) => {
         if (isMounted && !error && data) {
-          setEpisode(data);
-          setNotes(data.notes || "");
-          setLinks(data.links || "");
-          setEditTitle(data.title);
-          setEditDescription(data.description || "");
-          setEditStatus(data.status || "Idé");
+          const nextEpisode = data as Episode;
+
+          setEpisode(nextEpisode);
+          setTitle(nextEpisode.title);
+          setDescription(nextEpisode.description || "");
+          setStatus(nextEpisode.status || "Idé");
+          setResponsiblePerson(nextEpisode.responsible_person || "");
+          setRecordingDate(nextEpisode.recording_date || "");
+          setScript(nextEpisode.script || "");
+          setNotes(nextEpisode.notes || "");
+          setLinks(nextEpisode.links || "");
+          setChecklistState(nextEpisode.checklist_state || {});
+          setSpotifyLink(nextEpisode.spotify_link || "");
+          setYoutubeLink(nextEpisode.youtube_link || "");
+          setTiktokLink(nextEpisode.tiktok_link || "");
+          setPublishDate(nextEpisode.publish_date || "");
         }
       });
 
@@ -236,64 +260,129 @@ export default function EpisodeDetailPage() {
     };
   }, [params.id]);
 
-  async function saveNotes(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadRole() {
+      if (!episode?.podcast_id) {
+        setCurrentRole("");
+        return;
+      }
+
+      const { data: userData } = await supabase.auth.getUser();
+
+      if (!userData.user) {
+        setCurrentRole("");
+        return;
+      }
+
+      const { data } = await supabase
+        .from("podcast_members")
+        .select("role")
+        .eq("podcast_id", episode.podcast_id)
+        .eq("user_id", userData.user.id)
+        .maybeSingle();
+
+      if (isMounted) {
+        const role = (data as { role: string } | null)?.role || "";
+        setCurrentRole(role === "member" ? "viewer" : role);
+      }
+    }
+
+    loadRole();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [episode?.podcast_id]);
+
+  async function saveEpisodeFields(
+    values: Partial<Omit<Episode, "id" | "podcast_id">>,
+    successMessage: string,
+  ) {
+    if (!episode || !canManageEpisode) {
+      return;
+    }
+
     setIsSaving(true);
+    setMessage("");
 
     const { error } = await supabase
       .from("episodes")
-      .update({ notes })
-      .eq("id", params.id);
+      .update(values)
+      .eq("id", episode.id);
 
-    if (!error && episode) {
-      setEpisode({ ...episode, notes });
+    if (error) {
+      console.error("Episode save failed:", error);
+      setMessage(error.message);
+    } else {
+      setEpisode({ ...episode, ...values });
+      setMessage(successMessage);
     }
 
     setIsSaving(false);
   }
 
-  function startEditingEpisode() {
-    if (!episode) {
-      return;
-    }
-
-    setEditTitle(episode.title);
-    setEditDescription(episode.description || "");
-    setEditStatus(episode.status || "Idé");
-    setIsEditingEpisode(true);
-  }
-
-  async function saveEpisode(event: FormEvent<HTMLFormElement>) {
+  async function saveOverview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!episode || !editTitle.trim()) {
+    await saveEpisodeFields(
+      {
+        description: description.trim(),
+        recording_date: recordingDate || null,
+        responsible_person: responsiblePerson.trim() || null,
+        status,
+        title: title.trim(),
+      },
+      "Översikt sparad.",
+    );
+  }
+
+  async function saveScript(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await saveEpisodeFields({ script }, "Manus sparat.");
+  }
+
+  async function saveNotes(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await saveEpisodeFields({ notes }, "Anteckningar sparade.");
+  }
+
+  async function savePublishing(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    await saveEpisodeFields(
+      {
+        publish_date: publishDate || null,
+        spotify_link: spotifyLink.trim() || null,
+        tiktok_link: tiktokLink.trim() || null,
+        youtube_link: youtubeLink.trim() || null,
+      },
+      "Publicering sparad.",
+    );
+  }
+
+  async function toggleChecklistItem(item: string) {
+    if (!canManageEpisode) {
       return;
     }
 
-    setIsSavingEpisode(true);
-
-    const nextEpisode = {
-      title: editTitle.trim(),
-      description: editDescription.trim(),
-      status: editStatus,
+    const nextChecklistState = {
+      ...checklistState,
+      [item]: !checklistState[item],
     };
-    const { error } = await supabase
-      .from("episodes")
-      .update(nextEpisode)
-      .eq("id", episode.id);
 
-    if (!error) {
-      setEpisode({ ...episode, ...nextEpisode });
-      setIsEditingEpisode(false);
-    }
-
-    setIsSavingEpisode(false);
+    setChecklistState(nextChecklistState);
+    await saveEpisodeFields(
+      { checklist_state: nextChecklistState },
+      "Checklista sparad.",
+    );
   }
 
   async function addExternalLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!episode || !linkInput.trim()) {
+    if (!episode || !linkInput.trim() || !canManageEpisode) {
       return;
     }
 
@@ -305,17 +394,21 @@ export default function EpisodeDetailPage() {
       .update({ links: nextLinks })
       .eq("id", episode.id);
 
-    if (!error && episode) {
+    if (!error) {
       setLinks(nextLinks);
       setLinkInput("");
       setEpisode({ ...episode, links: nextLinks });
+      setMessage("Länk sparad.");
+    } else {
+      console.error("Saving link failed:", error);
+      setMessage(error.message);
     }
 
     setIsSavingLinks(false);
   }
 
   async function saveMaterialLines(nextLines: string[]) {
-    if (!episode) {
+    if (!episode || !canManageEpisode) {
       return;
     }
 
@@ -327,11 +420,13 @@ export default function EpisodeDetailPage() {
 
     if (error) {
       console.error("Saving material failed:", error);
+      setMessage(error.message);
       return;
     }
 
     setLinks(nextLinks);
     setEpisode({ ...episode, links: nextLinks });
+    setMessage("Material sparat.");
   }
 
   async function removeMaterial(lineToRemove: string) {
@@ -347,7 +442,7 @@ export default function EpisodeDetailPage() {
   }
 
   async function uploadFile(file: File, kind: "file" | "thumbnail") {
-    if (!episode) {
+    if (!episode || !canManageEpisode) {
       return;
     }
 
@@ -363,6 +458,7 @@ export default function EpisodeDetailPage() {
 
     if (error) {
       console.error("Upload failed:", error);
+      setMessage(error.message);
       setIsUploading(false);
       return;
     }
@@ -385,24 +481,16 @@ export default function EpisodeDetailPage() {
             nextLine,
           ]
         : [...materialLines, nextLine];
-    const nextLinks = nextLines.join("\n");
-    const { error: updateError } = await supabase
-      .from("episodes")
-      .update({ links: nextLinks })
-      .eq("id", episode.id);
 
-    if (updateError) {
-      console.error("Saving uploaded file failed:", updateError);
-      setIsUploading(false);
-      return;
-    }
-
-    setLinks(nextLinks);
-    setEpisode({ ...episode, links: nextLinks });
+    await saveMaterialLines(nextLines);
     setIsUploading(false);
   }
 
   function chooseThumbnail(file: File) {
+    if (!canManageEpisode) {
+      return;
+    }
+
     setPendingCrop({
       file,
       originalName: file.name,
@@ -414,7 +502,7 @@ export default function EpisodeDetailPage() {
   }
 
   async function cropCurrentThumbnail() {
-    if (!thumbnail) {
+    if (!thumbnail || !canManageEpisode) {
       return;
     }
 
@@ -437,7 +525,7 @@ export default function EpisodeDetailPage() {
   }
 
   async function saveCroppedThumbnail() {
-    if (!pendingCrop || !croppedArea) {
+    if (!pendingCrop || !croppedArea || !canManageEpisode) {
       return;
     }
 
@@ -454,163 +542,317 @@ export default function EpisodeDetailPage() {
     await uploadFile(thumbnailFile, "thumbnail");
   }
 
-  return (
-    <main className="min-h-screen bg-[#050505] px-6 py-8 text-zinc-100 sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-        <header className="overflow-hidden rounded-lg bg-[#111111]">
-          <div className="relative h-80 bg-[#181818]">
-            {thumbnail ? (
-              <img
-                alt=""
-                className="h-full w-full object-contain"
-                src={thumbnail}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-zinc-700">
-                <ImageIcon size={54} />
+  function renderFiles(titleText: string, files: MaterialFile[]) {
+    if (files.length === 0) {
+      return null;
+    }
+
+    return (
+      <div>
+        <h3 className="text-sm font-semibold text-white">{titleText}</h3>
+        <div className="mt-3 grid gap-3">
+          {files.map((file) => (
+            <div className="rounded-xl bg-[#111111] p-4" key={file.url}>
+              <div className="flex items-center justify-between gap-4">
+                <a
+                  className="flex min-w-0 items-center gap-3"
+                  href={file.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <span className="text-[#1DB954]">{materialIcon(file)}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-zinc-200">
+                      {file.name}
+                    </span>
+                    <span className="text-xs text-zinc-500">{titleText}</span>
+                  </span>
+                </a>
+                <div className="flex shrink-0 items-center gap-2">
+                  {isImage(file.type) ? (
+                    <button
+                      className="rounded-full bg-[#181818] px-4 py-2 text-xs font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white"
+                      onClick={() => setLightboxImage(file)}
+                      type="button"
+                    >
+                      Öppna
+                    </button>
+                  ) : null}
+                  {canManageEpisode ? (
+                    <button
+                      aria-label="Ta bort fil"
+                      className="rounded-full bg-[#181818] p-2 text-zinc-400 transition hover:text-white"
+                      onClick={() => removeMaterial(file.line)}
+                      type="button"
+                    >
+                      <X size={14} />
+                    </button>
+                  ) : null}
+                </div>
               </div>
-            )}
-            <Link
-              className="absolute left-6 top-6 rounded-full bg-black/70 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:text-white"
-              href="/episodes"
-            >
-              Tillbaka till avsnitt
-            </Link>
-            <div className="absolute bottom-6 right-6 flex flex-wrap justify-end gap-2">
-              <button
-                className="rounded-full bg-black/70 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:text-white disabled:text-zinc-500"
-                disabled={!thumbnail}
-                onClick={cropCurrentThumbnail}
-                type="button"
-              >
-                Beskär
-              </button>
+
+              {isPdf(file.type, file.name) ? (
+                <iframe
+                  className="mt-4 h-72 w-full rounded-lg border border-zinc-800 bg-black"
+                  src={file.url}
+                  title={file.name}
+                />
+              ) : null}
+
+              {isVideo(file.type) ? (
+                <video
+                  className="mt-4 w-full rounded-lg bg-black"
+                  controls
+                  src={file.url}
+                />
+              ) : null}
+
+              {isAudio(file.type) ? (
+                <audio className="mt-4 w-full" controls src={file.url}>
+                  <track kind="captions" />
+                </audio>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-[#050505] px-6 py-10 text-zinc-100 sm:px-10 lg:px-14">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
+        <Link
+          className="w-fit rounded-full bg-[#111111] px-4 py-2 text-sm font-semibold text-zinc-300 ring-1 ring-zinc-900 transition hover:bg-[#181818] hover:text-white"
+          href="/episodes"
+        >
+          Tillbaka till avsnitt
+        </Link>
+
+        <header className="grid gap-8 rounded-2xl bg-[#111111] p-6 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 lg:grid-cols-[0.7fr_1.3fr] lg:p-8">
+          <div>
+            <div className="flex aspect-square items-center justify-center overflow-hidden rounded-2xl bg-[#181818] shadow-2xl shadow-black/50">
               {thumbnail ? (
+                <img
+                  alt=""
+                  className="h-full w-full object-contain"
+                  src={thumbnail}
+                />
+              ) : (
+                <ImageIcon className="text-zinc-700" size={64} />
+              )}
+            </div>
+
+            {canManageEpisode ? (
+              <div className="mt-5 flex flex-wrap gap-2">
                 <button
-                  className="rounded-full bg-black/70 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:text-white"
-                  onClick={removeThumbnail}
+                  className="rounded-full bg-[#181818] px-4 py-2.5 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:bg-[#202020] hover:text-white disabled:text-zinc-500"
+                  disabled={!thumbnail}
+                  onClick={cropCurrentThumbnail}
                   type="button"
                 >
-                  Ta bort
+                  Beskär
                 </button>
-              ) : null}
-              <label className="flex cursor-pointer items-center gap-2 rounded-full bg-[#1DB954] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#22d760]">
-                <Upload size={16} />
-                {thumbnail ? "Byt thumbnail" : "Thumbnail"}
-                <input
-                  accept="image/*"
-                  className="hidden"
-                  disabled={isUploading}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
+                {thumbnail ? (
+                  <button
+                    className="rounded-full bg-[#181818] px-4 py-2.5 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:bg-[#202020] hover:text-white"
+                    onClick={removeThumbnail}
+                    type="button"
+                  >
+                    Ta bort
+                  </button>
+                ) : null}
+                <label className="flex cursor-pointer items-center gap-2 rounded-full bg-[#1DB954] px-5 py-2.5 text-sm font-bold text-black transition hover:bg-[#22d760]">
+                  <Upload size={16} />
+                  {thumbnail ? "Byt thumbnail" : "Thumbnail"}
+                  <input
+                    accept="image/*"
+                    className="hidden"
+                    disabled={isUploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
 
-                    if (file) {
-                      chooseThumbnail(file);
-                    }
+                      if (file) {
+                        chooseThumbnail(file);
+                      }
 
-                    event.target.value = "";
-                  }}
-                  type="file"
-                />
-              </label>
-            </div>
+                      event.target.value = "";
+                    }}
+                    type="file"
+                  />
+                </label>
+              </div>
+            ) : null}
           </div>
 
-          <div className="p-6 sm:p-8">
-            {isEditingEpisode ? (
-              <form className="flex max-w-3xl flex-col gap-4" onSubmit={saveEpisode}>
-                <select
-                  className="w-fit rounded-full border border-zinc-800 bg-[#181818] px-3 py-1 text-xs font-bold text-white outline-none focus:border-[#1DB954]"
-                  onChange={(event) => setEditStatus(event.target.value)}
-                  value={editStatus}
-                >
-                  {statusOptions.map((option) => (
-                    <option className="bg-[#181818] text-white" key={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className="rounded-lg border border-zinc-800 bg-[#181818] px-4 py-3 text-3xl font-semibold tracking-tight text-white outline-none focus:border-[#1DB954] sm:text-5xl"
-                  onChange={(event) => setEditTitle(event.target.value)}
-                  placeholder="Titel"
-                  type="text"
-                  value={editTitle}
-                />
-                <textarea
-                  className="min-h-28 rounded-lg border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
-                  onChange={(event) => setEditDescription(event.target.value)}
-                  placeholder="Beskrivning"
-                  value={editDescription}
-                />
-                <div className="flex gap-2">
-                  <button
-                    className="rounded-full bg-[#1DB954] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={isSavingEpisode}
-                    type="submit"
-                  >
-                    {isSavingEpisode ? "Sparar" : "Spara"}
-                  </button>
-                  <button
-                    className="rounded-full bg-[#181818] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white"
-                    onClick={() => setIsEditingEpisode(false)}
-                    type="button"
-                  >
-                    Avbryt
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="rounded-full bg-[#1DB954] px-3 py-1 text-xs font-bold text-black">
-                    {episode?.status || "Planering"}
-                  </span>
-                  <button
-                    className="rounded-full bg-[#181818] px-4 py-2 text-xs font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white"
-                    onClick={startEditingEpisode}
-                    type="button"
-                  >
-                    Redigera
-                  </button>
-                </div>
-                <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                  {episode?.title || "Avsnitt"}
-                </h1>
-                <p className="mt-4 max-w-2xl text-sm leading-6 text-zinc-400 sm:text-base">
-                  {episode?.description || "Ingen beskrivning ännu."}
-                </p>
-              </>
-            )}
+          <div className="flex flex-col justify-end">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
+              Episode workspace
+            </p>
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white sm:text-6xl">
+              {episode?.title || "Avsnitt"}
+            </h1>
+            <p className="mt-5 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
+              {episode?.description || "Ingen beskrivning ännu."}
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3 text-sm text-zinc-400">
+              <span className="rounded-full bg-[#1DB954] px-3 py-1 font-bold text-black">
+                {episode?.status || "Idé"}
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-[#181818] px-3 py-1">
+                <UserRound size={14} />
+                {episode?.responsible_person || "Ingen ansvarig"}
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-[#181818] px-3 py-1">
+                <CalendarDays size={14} />
+                {episode?.recording_date || "Inget inspelningsdatum"}
+              </span>
+            </div>
           </div>
         </header>
 
-        <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-          <article className="rounded-lg bg-[#181818] p-6">
-            <h2 className="text-xl font-semibold text-white">Anteckningar</h2>
-            <form className="mt-4 flex flex-col gap-4" onSubmit={saveNotes}>
+        {message ? (
+          <p className="rounded-2xl bg-[#111111] p-4 text-sm text-zinc-400 ring-1 ring-zinc-900">
+            {message}
+          </p>
+        ) : null}
+
+        <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+          <article className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+            <h2 className="text-2xl font-semibold text-white">Overview</h2>
+            <form className="mt-6 grid gap-4" onSubmit={saveOverview}>
+              <input
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
+                disabled={!canManageEpisode}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Title"
+                value={title}
+              />
               <textarea
-                className="min-h-52 rounded-lg border border-zinc-800 bg-[#111111] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
+                className="min-h-28 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
+                disabled={!canManageEpisode}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Description"
+                value={description}
+              />
+              <select
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none focus:border-[#1DB954] disabled:opacity-60"
+                disabled={!canManageEpisode}
+                onChange={(event) => setStatus(event.target.value)}
+                value={status}
+              >
+                {statusOptions.map((option) => (
+                  <option className="bg-[#181818] text-white" key={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
+                disabled={!canManageEpisode}
+                onChange={(event) => setResponsiblePerson(event.target.value)}
+                placeholder="Responsible person"
+                value={responsiblePerson}
+              />
+              <input
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none focus:border-[#1DB954] disabled:opacity-60"
+                disabled={!canManageEpisode}
+                onChange={(event) => setRecordingDate(event.target.value)}
+                type="date"
+                value={recordingDate}
+              />
+              {canManageEpisode ? (
+                <button
+                  className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:opacity-60"
+                  disabled={isSaving}
+                  type="submit"
+                >
+                  Spara overview
+                </button>
+              ) : null}
+            </form>
+          </article>
+
+          <article className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+            <h2 className="text-2xl font-semibold text-white">Manus</h2>
+            <form className="mt-6 flex flex-col gap-4" onSubmit={saveScript}>
+              <textarea
+                className="min-h-96 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
+                disabled={!canManageEpisode}
+                onChange={(event) => setScript(event.target.value)}
+                placeholder="Skriv manus här."
+                value={script}
+              />
+              {canManageEpisode ? (
+                <button
+                  className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:opacity-60"
+                  disabled={isSaving}
+                  type="submit"
+                >
+                  Spara manus
+                </button>
+              ) : null}
+            </form>
+          </article>
+
+          <article className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+            <h2 className="text-2xl font-semibold text-white">Notes</h2>
+            <form className="mt-6 flex flex-col gap-4" onSubmit={saveNotes}>
+              <textarea
+                className="min-h-72 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
+                disabled={!canManageEpisode}
                 onChange={(event) => setNotes(event.target.value)}
                 placeholder="Skriv anteckningar här."
                 value={notes}
               />
-              <button
-                className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isSaving}
-                type="submit"
-              >
-                {isSaving ? "Sparar" : "Spara anteckningar"}
-              </button>
+              {canManageEpisode ? (
+                <button
+                  className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:opacity-60"
+                  disabled={isSaving}
+                  type="submit"
+                >
+                  Spara notes
+                </button>
+              ) : null}
             </form>
           </article>
 
-          <article className="rounded-lg bg-[#181818] p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-xl font-semibold text-white">Material</h2>
+          <article className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+            <h2 className="text-2xl font-semibold text-white">Checklist</h2>
+            <div className="mt-6 grid gap-3">
+              {checklistItems.map((item) => (
+                <button
+                  className="flex items-center justify-between rounded-xl bg-[#181818] p-4 text-left transition hover:bg-[#202020] disabled:cursor-default"
+                  disabled={!canManageEpisode}
+                  key={item}
+                  onClick={() => toggleChecklistItem(item)}
+                  type="button"
+                >
+                  <span className="text-sm font-semibold text-white">
+                    {item}
+                  </span>
+                  <span
+                    className={`flex size-7 items-center justify-center rounded-full ${
+                      checklistState[item]
+                        ? "bg-[#1DB954] text-black"
+                        : "bg-[#111111] text-zinc-600"
+                    }`}
+                  >
+                    <CheckCircle2 size={16} />
+                  </span>
+                </button>
+              ))}
+            </div>
+          </article>
+        </section>
+
+        <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-2xl font-semibold text-white">Material</h2>
+            {canManageEpisode ? (
               <label className="flex w-fit cursor-pointer items-center gap-2 rounded-full bg-[#1DB954] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#22d760]">
                 <Upload size={16} />
-                Ladda upp
+                {isUploading ? "Laddar upp..." : "Ladda upp"}
                 <input
                   accept="application/pdf,image/*,video/*,audio/*"
                   className="hidden"
@@ -627,39 +869,45 @@ export default function EpisodeDetailPage() {
                   type="file"
                 />
               </label>
-            </div>
-
-            {isUploading ? (
-              <p className="mt-3 text-sm text-zinc-500">Laddar upp...</p>
             ) : null}
+          </div>
 
+          {canManageEpisode ? (
             <form
-              className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]"
+              className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]"
               onSubmit={addExternalLink}
             >
               <input
-                className="rounded-lg border border-zinc-800 bg-[#111111] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
+                className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
                 onChange={(event) => setLinkInput(event.target.value)}
                 placeholder="Lägg till extern länk"
                 type="url"
                 value={linkInput}
               />
               <button
-                className="rounded-full bg-[#111111] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-full bg-[#181818] px-5 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white disabled:opacity-60"
                 disabled={isSavingLinks}
                 type="submit"
               >
-                {isSavingLinks ? "Sparar" : "Lägg till"}
+                Lägg till
               </button>
             </form>
+          ) : null}
+
+          <div className="mt-8 grid gap-8 lg:grid-cols-2">
+            {renderFiles("Images", imageFiles)}
+            {renderFiles("PDFs", pdfFiles)}
+            {renderFiles("Videos", videoFiles)}
+            {renderFiles("Audio", audioFiles)}
+            {renderFiles("Files", otherFiles)}
 
             {savedLinks.length > 0 ? (
-              <div className="mt-8">
+              <div>
                 <h3 className="text-sm font-semibold text-white">Links</h3>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="mt-3 grid gap-3">
                   {savedLinks.map((url) => (
                     <div
-                      className="flex items-center justify-between gap-4 rounded-lg bg-[#111111] p-4 transition hover:bg-[#202020]"
+                      className="flex items-center justify-between gap-4 rounded-xl bg-[#111111] p-4 transition hover:bg-[#202020]"
                       key={url}
                     >
                       <a
@@ -678,107 +926,78 @@ export default function EpisodeDetailPage() {
                       </a>
                       <div className="flex shrink-0 items-center gap-2">
                         <ExternalLink className="text-zinc-500" size={16} />
-                        <button
-                          aria-label="Ta bort länk"
-                          className="rounded-full bg-[#181818] p-2 text-zinc-400 transition hover:text-white"
-                          onClick={() => removeMaterial(url)}
-                          type="button"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {savedFiles.length > 0 ? (
-              <div className="mt-8">
-                <h3 className="text-sm font-semibold text-white">Files</h3>
-                <div className="mt-3 grid gap-3">
-                  {savedFiles.map((file) => (
-                    <div
-                      className="rounded-lg bg-[#111111] p-4"
-                      key={file.url}
-                    >
-                      <div className="flex items-center justify-between gap-4">
-                        <a
-                          className="flex min-w-0 items-center gap-3"
-                          href={file.url}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          <span className="text-[#1DB954]">
-                            {getFileIcon(file)}
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium text-zinc-200">
-                              {file.name}
-                            </span>
-                            <span className="text-xs text-zinc-500">
-                              {getFileLabel(file)}
-                            </span>
-                          </span>
-                        </a>
-                        {isImage(file.type) ? (
+                        {canManageEpisode ? (
                           <button
-                            className="rounded-full bg-[#181818] px-4 py-2 text-xs font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:text-white"
-                            onClick={() => setLightboxImage(file)}
+                            aria-label="Ta bort länk"
+                            className="rounded-full bg-[#181818] p-2 text-zinc-400 transition hover:text-white"
+                            onClick={() => removeMaterial(url)}
                             type="button"
                           >
-                            Öppna
+                            <X size={14} />
                           </button>
                         ) : null}
-                        <button
-                          aria-label="Ta bort fil"
-                          className="rounded-full bg-[#181818] p-2 text-zinc-400 transition hover:text-white"
-                          onClick={() => removeMaterial(file.line)}
-                          type="button"
-                        >
-                          <X size={14} />
-                        </button>
                       </div>
-
-                      {isPdf(file.type, file.name) ? (
-                        <iframe
-                          className="mt-4 h-72 w-full rounded-lg border border-zinc-800 bg-black"
-                          src={file.url}
-                          title={file.name}
-                        />
-                      ) : null}
-
-                      {isVideo(file.type) ? (
-                        <video
-                          className="mt-4 w-full rounded-lg bg-black"
-                          controls
-                          src={file.url}
-                        />
-                      ) : null}
-
-                      {isAudio(file.type) ? (
-                        <audio className="mt-4 w-full" controls src={file.url}>
-                          <track kind="captions" />
-                        </audio>
-                      ) : null}
                     </div>
                   ))}
                 </div>
               </div>
             ) : null}
-          </article>
+          </div>
 
-          {sections.map((section) => (
-            <article
-              className="rounded-lg bg-[#181818] p-6"
-              key={section}
-            >
-              <h2 className="text-xl font-semibold text-white">{section}</h2>
-              <p className="mt-3 text-sm leading-6 text-zinc-400">
-                Kommer senare.
-              </p>
-            </article>
-          ))}
+          {savedFiles.length === 0 && savedLinks.length === 0 ? (
+            <p className="mt-6 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
+              Inget material sparat ännu.
+            </p>
+          ) : null}
+        </section>
+
+        <section className="rounded-2xl bg-[#111111] p-6 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+          <h2 className="text-2xl font-semibold text-white">Publishing</h2>
+          <form
+            className="mt-6 grid gap-4 md:grid-cols-2"
+            onSubmit={savePublishing}
+          >
+            <input
+              className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
+              disabled={!canManageEpisode}
+              onChange={(event) => setSpotifyLink(event.target.value)}
+              placeholder="Spotify link"
+              type="url"
+              value={spotifyLink}
+            />
+            <input
+              className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
+              disabled={!canManageEpisode}
+              onChange={(event) => setYoutubeLink(event.target.value)}
+              placeholder="YouTube link"
+              type="url"
+              value={youtubeLink}
+            />
+            <input
+              className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
+              disabled={!canManageEpisode}
+              onChange={(event) => setTiktokLink(event.target.value)}
+              placeholder="TikTok link"
+              type="url"
+              value={tiktokLink}
+            />
+            <input
+              className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none focus:border-[#1DB954] disabled:opacity-60"
+              disabled={!canManageEpisode}
+              onChange={(event) => setPublishDate(event.target.value)}
+              type="date"
+              value={publishDate}
+            />
+            {canManageEpisode ? (
+              <button
+                className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:opacity-60"
+                disabled={isSaving}
+                type="submit"
+              >
+                Spara publishing
+              </button>
+            ) : null}
+          </form>
         </section>
       </div>
 

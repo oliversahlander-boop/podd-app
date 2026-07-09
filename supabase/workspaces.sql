@@ -12,20 +12,59 @@ add column if not exists thumbnail_url text;
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
+  avatar_url text,
+  theme text not null default 'dark',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
+alter table public.profiles
+add column if not exists avatar_url text;
+
+alter table public.profiles
+add column if not exists theme text not null default 'dark';
+
 create table if not exists public.podcast_members (
   podcast_id uuid not null references public.podcasts(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  role text not null default 'member',
+  role text not null default 'viewer',
   created_at timestamptz not null default now(),
   primary key (podcast_id, user_id)
 );
 
+alter table public.podcast_members
+alter column role set default 'viewer';
+
+update public.podcast_members
+set role = 'viewer'
+where role = 'member';
+
 alter table public.episodes
 add column if not exists podcast_id uuid references public.podcasts(id) on delete cascade;
+
+alter table public.episodes
+add column if not exists script text;
+
+alter table public.episodes
+add column if not exists checklist_state jsonb not null default '{}'::jsonb;
+
+alter table public.episodes
+add column if not exists responsible_person text;
+
+alter table public.episodes
+add column if not exists recording_date date;
+
+alter table public.episodes
+add column if not exists spotify_link text;
+
+alter table public.episodes
+add column if not exists youtube_link text;
+
+alter table public.episodes
+add column if not exists tiktok_link text;
+
+alter table public.episodes
+add column if not exists publish_date date;
 
 create index if not exists episodes_podcast_id_idx on public.episodes(podcast_id);
 create index if not exists podcast_members_user_id_idx on public.podcast_members(user_id);
@@ -74,7 +113,7 @@ using (
   )
 );
 
-create policy "Owners can update podcasts"
+create policy "Owners and admins can update podcasts"
 on public.podcasts
 for update
 to authenticated
@@ -84,7 +123,7 @@ using (
     from public.podcast_members
     where podcast_members.podcast_id = podcasts.id
       and podcast_members.user_id = auth.uid()
-      and podcast_members.role = 'owner'
+      and podcast_members.role in ('owner', 'admin')
   )
 )
 with check (
@@ -93,7 +132,7 @@ with check (
     from public.podcast_members
     where podcast_members.podcast_id = podcasts.id
       and podcast_members.user_id = auth.uid()
-      and podcast_members.role = 'owner'
+      and podcast_members.role in ('owner', 'admin')
   )
 );
 
@@ -123,12 +162,48 @@ for select
 to authenticated
 using (user_id = auth.uid());
 
-create policy "Owners can remove podcast members"
+create policy "Owners and admins can remove podcast members"
 on public.podcast_members
 for delete
 to authenticated
 using (
   user_id <> auth.uid()
+  and (
+    podcast_members.role <> 'owner'
+    or exists (
+      select 1
+      from public.podcast_members owner_membership
+      where owner_membership.podcast_id = podcast_members.podcast_id
+        and owner_membership.user_id = auth.uid()
+        and owner_membership.role = 'owner'
+    )
+  )
+  and exists (
+    select 1
+    from public.podcast_members manager_membership
+    where manager_membership.podcast_id = podcast_members.podcast_id
+      and manager_membership.user_id = auth.uid()
+      and manager_membership.role in ('owner', 'admin')
+  )
+);
+
+create policy "Owners can update podcast member roles"
+on public.podcast_members
+for update
+to authenticated
+using (
+  user_id <> auth.uid()
+  and exists (
+    select 1
+    from public.podcast_members owner_membership
+    where owner_membership.podcast_id = podcast_members.podcast_id
+      and owner_membership.user_id = auth.uid()
+      and owner_membership.role = 'owner'
+  )
+)
+with check (
+  user_id <> auth.uid()
+  and role in ('owner', 'admin', 'editor', 'viewer')
   and exists (
     select 1
     from public.podcast_members owner_membership
@@ -147,17 +222,17 @@ using (
   and role <> 'owner'
 );
 
-create policy "Owners can add podcast members"
+create policy "Owners and admins can add podcast members"
 on public.podcast_members
 for insert
 to authenticated
 with check (
   exists (
     select 1
-    from public.podcast_members owner_membership
-    where owner_membership.podcast_id = podcast_members.podcast_id
-      and owner_membership.user_id = auth.uid()
-      and owner_membership.role = 'owner'
+    from public.podcast_members manager_membership
+    where manager_membership.podcast_id = podcast_members.podcast_id
+      and manager_membership.user_id = auth.uid()
+      and manager_membership.role in ('owner', 'admin')
   )
 );
 
@@ -183,9 +258,9 @@ begin
     from public.podcast_members
     where podcast_members.podcast_id = target_podcast_id
       and podcast_members.user_id = auth.uid()
-      and podcast_members.role = 'owner'
+      and podcast_members.role in ('owner', 'admin')
   ) then
-    raise exception 'Only owners can add members';
+    raise exception 'Only owners and admins can add members';
   end if;
 
   select users.id
@@ -199,7 +274,7 @@ begin
   end if;
 
   insert into public.podcast_members (podcast_id, user_id, role)
-  values (target_podcast_id, target_user_id, 'member')
+  values (target_podcast_id, target_user_id, 'viewer')
   on conflict (podcast_id, user_id) do update
   set role = public.podcast_members.role;
 
