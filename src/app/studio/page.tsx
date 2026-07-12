@@ -293,6 +293,17 @@ type LocalStudioRecord = {
   savedAt: string;
 };
 
+type LocalEditCommand = {
+  afterState: ReturnType<typeof serializeProjectForCommand>;
+  beforeState: ReturnType<typeof serializeProjectForCommand>;
+  clientMutationId: string;
+  commandType: string;
+  createdAt: string;
+  id: string;
+  projectId: string;
+  userId: string;
+};
+
 type LocalRecordingRecord = {
   audioBuffer?: AudioBuffer;
   blob: Blob;
@@ -425,7 +436,7 @@ function studioSaveLabel(
   }
 
   if (saveStatus === "error") {
-    return "Kunde inte spara i molnet";
+    return "Synkfel";
   }
 
   if (saveStatus === "local") {
@@ -433,7 +444,7 @@ function studioSaveLabel(
   }
 
   if (project.isDirty || saveStatus === "dirty") {
-    return "Ej sparat";
+    return "Sparat lokalt";
   }
 
   return "Sparat";
@@ -601,7 +612,13 @@ function toStudioProject(
       : "ready";
 
   return {
-    duration: getProjectDuration(nextTracks),
+    duration: Math.max(
+      60,
+      getProjectDuration(nextTracks),
+      asNumber(projectRow.playhead_seconds),
+      asNumber(projectRow.selection_start),
+      asNumber(projectRow.selection_end),
+    ),
     episodeId: projectRow.episode_id,
     id: projectRow.id,
     isDirty: false,
@@ -637,7 +654,7 @@ function toStudioProject(
 
 function openStudioDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("podd-studio", 4);
+    const request = indexedDB.open("podd-studio", 5);
 
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains("projects")) {
@@ -669,6 +686,9 @@ function openStudioDatabase() {
 
       if (!request.result.objectStoreNames.contains("recordingRecovery")) {
         request.result.createObjectStore("recordingRecovery", { keyPath: "id" });
+      }
+      if (!request.result.objectStoreNames.contains("editCommands")) {
+        request.result.createObjectStore("editCommands", { keyPath: "id" });
       }
     };
     request.onerror = () => reject(request.error);
@@ -705,6 +725,8 @@ function assertIndexedDBSerializable(value: unknown, path = "record"): void {
 }
 
 function serializeClipForIndexedDB(clip: StudioClip) {
+  const sourceUrl = typeof clip.sourceUrl === "string" ? clip.sourceUrl : "";
+
   return {
     duration: clip.duration,
     fadeIn: clip.fadeIn,
@@ -717,11 +739,28 @@ function serializeClipForIndexedDB(clip: StudioClip) {
     name: clip.name,
     sourceFileId: clip.sourceFileId,
     sourceOffset: clip.sourceOffset,
-    sourceUrl: clip.sourceUrl.startsWith("blob:") ? undefined : clip.sourceUrl,
+    sourceUrl: sourceUrl.startsWith("blob:") ? undefined : sourceUrl,
     startTime: clip.startTime,
     trackId: clip.trackId,
     uploadStatus: clip.uploadStatus,
     waveformPeaks: [...clip.waveformPeaks],
+  };
+}
+
+function serializeProjectForCommand(project: StudioProject) {
+  return {
+    ...project,
+    mediaFiles: project.mediaFiles.map((file) => ({
+      ...file,
+      publicUrl: "",
+    })),
+    tracks: project.tracks.map((track) => ({
+      ...track,
+      clips: track.clips.map((clip) => ({
+        ...serializeClipForIndexedDB(clip),
+        sourceUrl: undefined,
+      })),
+    })),
   };
 }
 
@@ -962,6 +1001,36 @@ async function getLocalProject(episodeId: string) {
   return record;
 }
 
+async function saveLocalEditCommand(command: LocalEditCommand) {
+  assertIndexedDBSerializable(command);
+  const database = await openStudioDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction("editCommands", "readwrite");
+      transaction.objectStore("editCommands").put(command);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function deleteLocalEditCommand(id: string) {
+  const database = await openStudioDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction("editCommands", "readwrite");
+      transaction.objectStore("editCommands").delete(id);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
 async function saveLocalRecording(recording: LocalRecordingRecord) {
   let database: IDBDatabase | null = null;
   const saved = serializeRecordingForIndexedDB(recording);
@@ -1161,11 +1230,18 @@ function projectToDatabase(project: StudioProject) {
   };
 }
 
-function trackToDatabase(projectId: string, track: StudioTrack) {
+function trackToDatabase(
+  projectId: string,
+  track: StudioTrack,
+  currentUserId?: string,
+  clientMutationId?: string,
+  projectVersion?: number,
+) {
   return {
     armed: track.armed,
     assigned_user_id: track.assignedUserId || null,
     channel_mode: track.channelMode,
+    client_mutation_id: clientMutationId || null,
     clipping: track.clipping,
     height: track.height,
     id: track.id,
@@ -1180,10 +1256,45 @@ function trackToDatabase(projectId: string, track: StudioTrack) {
     output_peak: track.outputPeak,
     pan: track.pan,
     project_id: projectId,
+    project_version: projectVersion || 1,
     solo: track.solo,
     track_order: track.order,
     type: track.type,
+    updated_by: currentUserId || null,
     volume: track.volume,
+  };
+}
+
+function clipToDatabase(
+  projectId: string,
+  clip: StudioClip,
+  clipOrder: number,
+  currentUserId: string,
+  clientMutationId?: string,
+  projectVersion?: number,
+) {
+  return {
+    clip_order: clipOrder,
+    client_mutation_id: clientMutationId || null,
+    created_by: currentUserId || null,
+    duration: clip.duration,
+    fade_in: clip.fadeIn,
+    fade_out: clip.fadeOut,
+    gain: clip.gain,
+    id: clip.id,
+    local_recording_id: clip.localRecordingId || null,
+    locked: clip.locked,
+    muted: clip.muted,
+    name: clip.name,
+    project_id: projectId,
+    project_version: projectVersion || 1,
+    source_file_id: clip.sourceFileId || null,
+    source_offset: clip.sourceOffset,
+    start_time: clip.startTime,
+    track_id: clip.trackId,
+    upload_status: clip.uploadStatus,
+    updated_by: currentUserId || null,
+    waveform_peaks: clip.waveformPeaks,
   };
 }
 
@@ -1396,6 +1507,16 @@ function getProjectDuration(tracks: StudioTrack[]) {
   );
 }
 
+function getVisibleProjectDuration(project: StudioProject) {
+  return Math.max(
+    60,
+    getProjectDuration(project.tracks),
+    project.playheadSeconds,
+    project.selectionStart || 0,
+    project.selectionEnd || 0,
+  );
+}
+
 function updateClipInProject(
   project: StudioProject,
   clipId: string,
@@ -1488,6 +1609,7 @@ function StudioPage() {
   const [isAddTrackOpen, setIsAddTrackOpen] = useState(false);
   const [isMediaCollapsed, setIsMediaCollapsed] = useState(false);
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(false);
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [mediaSearch, setMediaSearch] = useState("");
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
@@ -1506,6 +1628,7 @@ function StudioPage() {
   const saveTimerRef = useRef<number | null>(null);
   const versionPendingRef = useRef(false);
   const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const localMutationIdsRef = useRef<Set<string>>(new Set());
   const ignoreRealtimeUntilRef = useRef(0);
   const saveProjectVersionRef = useRef<
     (project?: StudioProject | null) => Promise<boolean>
@@ -1603,7 +1726,7 @@ function StudioPage() {
       const updatedProject = updater(currentProject);
       const nextProject = {
         ...updatedProject,
-        duration: getProjectDuration(updatedProject.tracks),
+        duration: getVisibleProjectDuration(updatedProject),
       };
       const isOnlySelectionChange =
         nextProject.tracks === currentProject.tracks &&
@@ -1636,6 +1759,8 @@ function StudioPage() {
   async function persistCompletedCommand(
     previousProject: StudioProject,
     nextProject: StudioProject,
+    commandType: string,
+    clientMutationId: string,
   ) {
     if (!canEdit) return;
     ignoreRealtimeUntilRef.current = Date.now() + 2500;
@@ -1654,7 +1779,11 @@ function StudioPage() {
         "save_studio_project_if_version",
         {
           expected_version: nextProject.version,
-          project_patch: projectToDatabase(nextProject),
+          project_patch: {
+            ...projectToDatabase(nextProject),
+            client_mutation_id: clientMutationId,
+            project_version: nextProject.version + 1,
+          },
           target_project_id: nextProject.id,
         },
       );
@@ -1668,7 +1797,11 @@ function StudioPage() {
         );
         const retry = await supabase.rpc("save_studio_project_if_version", {
           expected_version: serverVersion,
-          project_patch: projectToDatabase({ ...nextProject, version: serverVersion }),
+          project_patch: {
+            ...projectToDatabase({ ...nextProject, version: serverVersion }),
+            client_mutation_id: clientMutationId,
+            project_version: serverVersion + 1,
+          },
           target_project_id: nextProject.id,
         });
         savedProject = retry.data;
@@ -1693,30 +1826,30 @@ function StudioPage() {
       }
       const { error: trackError } = await supabase
         .from("studio_tracks")
-        .upsert(nextProject.tracks.map((track) => trackToDatabase(nextProject.id, track)));
+        .upsert(
+          nextProject.tracks.map((track) =>
+            trackToDatabase(
+              nextProject.id,
+              track,
+              currentUserId,
+              clientMutationId,
+              savedVersion,
+            ),
+          ),
+        );
       if (trackError) throw trackError;
       if (nextClips.length > 0) {
         const { error: clipError } = await supabase.from("studio_clips").upsert(
-          nextClips.map((clip, index) => ({
-            clip_order: index,
-            created_by: currentUserId,
-            duration: clip.duration,
-            fade_in: clip.fadeIn,
-            fade_out: clip.fadeOut,
-            gain: clip.gain,
-            id: clip.id,
-            local_recording_id: clip.localRecordingId || null,
-            locked: clip.locked,
-            muted: clip.muted,
-            name: clip.name,
-            project_id: nextProject.id,
-            source_file_id: clip.sourceFileId || null,
-            source_offset: clip.sourceOffset,
-            start_time: clip.startTime,
-            track_id: clip.trackId,
-            upload_status: clip.uploadStatus,
-            waveform_peaks: clip.waveformPeaks,
-          })),
+          nextClips.map((clip, index) =>
+            clipToDatabase(
+              nextProject.id,
+              clip,
+              index,
+              currentUserId,
+              clientMutationId,
+              savedVersion,
+            ),
+          ),
         );
         if (clipError) {
           console.error("Kunde inte spara studioklipp:", describeStudioError(clipError));
@@ -1750,6 +1883,17 @@ function StudioPage() {
         user_id: currentUserId,
       });
       if (activityError) throw activityError;
+      const { error: commandError } = await supabase.rpc("record_studio_edit_command", {
+        target_after_state: serializeProjectForCommand(nextProject),
+        target_before_state: serializeProjectForCommand(previousProject),
+        target_client_mutation_id: clientMutationId,
+        target_command_id: clientMutationId,
+        target_command_type: commandType,
+        target_project_id: nextProject.id,
+        target_project_version: savedVersion,
+      });
+      if (commandError) throw commandError;
+      await deleteLocalEditCommand(clientMutationId).catch(() => undefined);
       setSaveStatus("saved");
     } catch (error) {
       if (isStudioVersionConflict(error)) {
@@ -1758,14 +1902,27 @@ function StudioPage() {
         return;
       }
       console.error("Kunde inte spara redigeringskommando:", describeStudioError(error));
+      await saveLocalEditCommand({
+        afterState: serializeProjectForCommand(nextProject),
+        beforeState: serializeProjectForCommand(previousProject),
+        clientMutationId,
+        commandType,
+        createdAt: new Date().toISOString(),
+        id: clientMutationId,
+        projectId: nextProject.id,
+        userId: currentUserId,
+      }).catch((localError) => {
+        console.error("Kunde inte köa redigeringskommando lokalt:", localError);
+      });
       setSaveStatus("error");
-      setMessage("Redigeringen kunde inte synkroniseras.");
+      setMessage("Ändringen är sparad lokalt men inte i molnet.");
     }
   }
 
   function executeEditingCommand(
     updater: (currentProject: StudioProject) => StudioProject,
     addToHistory = true,
+    commandType = "project_edited",
   ) {
     const currentProject = projectRef.current;
     if (!currentProject || !canEdit) {
@@ -1775,7 +1932,7 @@ function StudioPage() {
     const updatedProject = updater(currentProject);
     const nextProject = {
       ...updatedProject,
-      duration: getProjectDuration(updatedProject.tracks),
+      duration: getVisibleProjectDuration(updatedProject),
       isDirty: true,
     };
     if (addToHistory) {
@@ -1785,12 +1942,19 @@ function StudioPage() {
     projectRef.current = nextProject;
     setProjectState(nextProject);
     setSaveStatus("saving");
+    const clientMutationId = createId();
+    localMutationIdsRef.current.add(clientMutationId);
     void saveLocalProject(nextProject).catch((error) => {
       console.error("Kunde inte spara redigering lokalt:", error);
       setMessage("Redigeringen kunde inte sparas lokalt.");
     });
     cloudSaveQueueRef.current = cloudSaveQueueRef.current.then(() =>
-      persistCompletedCommand(currentProject, nextProject),
+      persistCompletedCommand(
+        currentProject,
+        nextProject,
+        commandType,
+        clientMutationId,
+      ),
     );
   }
 
@@ -1840,7 +2004,7 @@ function StudioPage() {
         ...track,
         clips: track.clips.filter((clip) => clip.id !== clipId),
       })),
-    }));
+    }), true, "clip_deleted");
     setMessage("Klippet är borttaget utan att originalfilen ändrades.");
   }
 
@@ -1891,7 +2055,7 @@ function StudioPage() {
           }));
         }),
       })),
-    }));
+    }), true, "clip_split");
     setMessage("Klippet är delat.");
   }
 
@@ -1939,7 +2103,7 @@ function StudioPage() {
           ...pastedClips.filter((clip) => clip.trackId === track.id),
         ],
       })),
-    }));
+    }), true, "clip_created");
     setMessage(`${pastedClips.length} klipp inklistrat.`);
   }
 
@@ -1985,7 +2149,7 @@ function StudioPage() {
           return parts;
         }),
       })),
-    }));
+    }), true, "clip_deleted");
     setMessage(keepOnly ? "Endast markeringen behölls." : "Det markerade intervallet är borttaget.");
   }
 
@@ -2002,8 +2166,42 @@ function StudioPage() {
             ? [...track.clips, { ...selected, id: createId(), locked: false, startTime: selected.startTime + selected.duration }]
             : track.clips,
       })),
-    }));
+    }), true, "clip_duplicated");
     setMessage("Klippet är duplicerat.");
+  }
+
+  function repeatSelectedClip() {
+    const currentProject = projectRef.current;
+    const selected = currentProject?.tracks
+      .flatMap((track) => track.clips)
+      .find((clip) => clip.id === currentProject.selectedClipId);
+    if (!selected) return setMessage("Välj ett klipp att upprepa.");
+    const countValue = window.prompt("Antal upprepningar", "3");
+    if (countValue === null) return;
+    const gapValue = window.prompt("Mellanrum mellan klipp i sekunder", "0");
+    if (gapValue === null) return;
+    const count = Math.floor(Number(countValue));
+    const gap = Number(gapValue);
+    if (!Number.isFinite(count) || count < 1 || count > 100 || !Number.isFinite(gap) || gap < 0) {
+      setMessage("Ange 1–100 upprepningar och ett giltigt mellanrum.");
+      return;
+    }
+    const repeatedClips = Array.from({ length: count }, (_, index) => ({
+      ...selected,
+      id: createId(),
+      locked: false,
+      startTime: selected.startTime + (selected.duration + gap) * (index + 1),
+    }));
+    executeEditingCommand((projectToEdit) => ({
+      ...projectToEdit,
+      selectedClipId: repeatedClips.at(-1)?.id || selected.id,
+      tracks: projectToEdit.tracks.map((track) =>
+        track.id === selected.trackId
+          ? { ...track, clips: [...track.clips, ...repeatedClips] }
+          : track,
+      ),
+    }), true, "clip_repeated");
+    setMessage(`${count} upprepningar skapades.`);
   }
 
   function applySelectedClipMetadata(patch: Partial<StudioClip>, message: string) {
@@ -2512,7 +2710,18 @@ function StudioPage() {
         recordingStatus: "recording",
       }));
       recordingTimerRef.current = window.setInterval(() => {
-        setRecordingSeconds(getRecordingActiveSeconds(recordingClockRef.current));
+        const elapsed = getRecordingActiveSeconds(recordingClockRef.current);
+        const livePosition = recordingStartPositionRef.current + elapsed;
+        setRecordingSeconds(elapsed);
+        setProjectState((currentProject) =>
+          currentProject
+            ? {
+                ...currentProject,
+                duration: Math.max(currentProject.duration, livePosition, 60),
+                playheadSeconds: livePosition,
+              }
+            : currentProject,
+        );
       }, 1000);
       setMessage("Spelar in");
     } catch (error) {
@@ -2875,6 +3084,8 @@ function StudioPage() {
     ignoreRealtimeUntilRef.current = Date.now() + 5000;
 
     try {
+      const clientMutationId = createId();
+      localMutationIdsRef.current.add(clientMutationId);
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -2889,7 +3100,7 @@ function StudioPage() {
         .from("studio-files")
         .upload(filePath, recording.blob, {
           contentType: recording.blob.type,
-          upsert: false,
+          upsert: true,
         });
 
       if (uploadError) {
@@ -2902,24 +3113,28 @@ function StudioPage() {
         .getPublicUrl(filePath);
       const { data: fileRow, error: fileError } = await supabase
         .from("studio_files")
-        .insert({
+        .upsert({
           category: "recordings",
           channel_count: 1,
+          client_mutation_id: clientMutationId,
           content_type: recording.blob.type,
           duration_seconds: recording.duration,
           episode_id: currentProject.episodeId,
           file_path: filePath,
           filename,
+          id: recording.id,
           podcast_id: currentProject.podcastId,
           project_id: currentProject.id,
+          project_version: currentProject.version,
           public_url: publicUrlData.publicUrl,
           recorded_at: new Date().toISOString(),
           sample_rate: 48000,
           size_bytes: recording.blob.size,
           upload_status: "uploaded",
           uploaded_by: user?.id || null,
+          updated_by: user?.id || null,
           waveform_peaks: recording.waveformPeaks,
-        })
+        }, { onConflict: "id" })
         .select("id,public_url")
         .single();
 
@@ -2928,30 +3143,34 @@ function StudioPage() {
       }
 
       setUploadProgress(90);
-      const { data: clipRow, error: clipError } = await supabase
+      const { error: clipError } = await supabase
         .from("studio_clips")
-        .insert({
+        .upsert({
           clip_order: currentProject.tracks.reduce(
             (count, track) => count + track.clips.length,
             0,
           ),
           created_by: user?.id || null,
+          client_mutation_id: clientMutationId,
           duration: recording.duration,
           fade_in: recording.clip.fadeIn,
           fade_out: recording.clip.fadeOut,
           gain: 1,
+          id: recording.clip.id,
           local_recording_id: recording.id,
           locked: false,
           muted: false,
           name: recording.clip.name,
           project_id: currentProject.id,
+          project_version: currentProject.version,
           source_file_id: (fileRow as StudioFileRow).id,
           source_offset: 0,
           start_time: recording.clip.startTime,
           track_id: recording.trackId,
           upload_status: "uploaded",
+          updated_by: user?.id || null,
           waveform_peaks: recording.waveformPeaks,
-        })
+        }, { onConflict: "id" })
         .select("id")
         .single();
 
@@ -2971,7 +3190,7 @@ function StudioPage() {
                     ? {
                         ...clip,
                         blobUrl: undefined,
-                        id: (clipRow as { id: string }).id,
+                        id: recording.clip.id,
                         sourceFileId: (fileRow as StudioFileRow).id,
                         sourceUrl:
                           (fileRow as StudioFileRow).public_url ||
@@ -3709,7 +3928,7 @@ function StudioPage() {
     decodedClips.forEach((result, index) => {
       if (result.status === "rejected") {
         const clip = clipsToDecode[index].clip;
-        console.error(`Kunde inte läsa ljudklippet ${clip.id}:`, result.reason);
+        console.warn(`Kunde inte läsa ljudklippet ${clip.id}:`, result.reason);
         setMessage(`Ljudklippet ”${clip.name}” kunde inte läsas. Övriga klipp spelas upp.`);
         return;
       }
@@ -3949,12 +4168,25 @@ function StudioPage() {
             new Date(remoteProject.remoteUpdatedAt).getTime();
 
         if (localProject && localIsNewer) {
+          const remoteSourceUrls = new Map(
+            remoteProject.tracks.flatMap((track) =>
+              track.clips.map((clip) => [clip.sourceFileId, clip.sourceUrl] as const),
+            ),
+          );
           setProjectState({
             ...localProject,
             isDirty: true,
             markers: localProject.markers || remoteProject.markers,
             selectionEnd: localProject.selectionEnd ?? null,
             selectionStart: localProject.selectionStart ?? null,
+            tracks: localProject.tracks.map((track) => ({
+              ...track,
+              clips: track.clips.map((clip) => ({
+                ...clip,
+                sourceUrl:
+                  clip.sourceUrl || remoteSourceUrls.get(clip.sourceFileId) || "",
+              })),
+            })),
             version: localProject.version || remoteProject.version,
           });
           setSaveStatus("dirty");
@@ -3990,13 +4222,36 @@ function StudioPage() {
           setRetryRecording(hydratedRecordings.at(-1) || null);
           setProjectState((currentProject) => {
             if (!currentProject) return currentProject;
-            const knownIds = new Set(currentProject.tracks.flatMap((track) => track.clips.map((clip) => clip.localRecordingId)));
+            const recordingsById = new Map(
+              hydratedRecordings.map((recording) => [recording.id, recording]),
+            );
+            const knownIds = new Set(
+              currentProject.tracks.flatMap((track) =>
+                track.clips.map((clip) => clip.localRecordingId),
+              ),
+            );
             return {
               ...currentProject,
               tracks: currentProject.tracks.map((track) => ({
                 ...track,
                 clips: [
-                  ...track.clips,
+                  ...track.clips.map((clip) => {
+                    const recording = clip.localRecordingId
+                      ? recordingsById.get(clip.localRecordingId)
+                      : undefined;
+
+                    return recording
+                      ? {
+                          ...clip,
+                          blobUrl: recording.objectUrl,
+                          sourceUrl: recording.objectUrl || "",
+                          waveformPeaks:
+                            clip.waveformPeaks.length > 0
+                              ? clip.waveformPeaks
+                              : recording.waveformPeaks,
+                        }
+                      : clip;
+                  }),
                   ...hydratedRecordings
                     .filter((recording) => recording.trackId === track.id && !knownIds.has(recording.id))
                     .map((recording) => recording.clip),
@@ -4107,6 +4362,40 @@ function StudioPage() {
           throw upsertError;
         }
 
+        const nextClips = projectToSave.tracks.flatMap((track) => track.clips);
+        const { data: existingClips, error: clipReadError } = await supabase
+          .from("studio_clips")
+          .select("id")
+          .eq("project_id", projectToSave.id);
+
+        if (clipReadError) throw clipReadError;
+
+        const nextClipIds = new Set(nextClips.map((clip) => clip.id));
+        const removedClipIds = ((existingClips as { id: string }[] | null) || [])
+          .map((clip) => clip.id)
+          .filter((clipId) => !nextClipIds.has(clipId));
+
+        if (removedClipIds.length > 0) {
+          const { error: deleteClipError } = await supabase
+            .from("studio_clips")
+            .delete()
+            .in("id", removedClipIds);
+
+          if (deleteClipError) throw deleteClipError;
+        }
+
+        if (nextClips.length > 0) {
+          const { error: upsertClipError } = await supabase
+            .from("studio_clips")
+            .upsert(
+              nextClips.map((clip, index) =>
+                clipToDatabase(projectToSave.id, clip, index, currentUserId),
+              ),
+            );
+
+          if (upsertClipError) throw upsertClipError;
+        }
+
         const nextProject = {
           ...projectToSave,
           isDirty: false,
@@ -4133,7 +4422,7 @@ function StudioPage() {
         setMessage(isConflict ? "Projektet har ändrats av Arvid" : "Kunde inte spara i molnet");
       }
     },
-    [canEdit],
+    [canEdit, currentUserId],
   );
 
   async function saveProjectVersion(projectToVersion = projectRef.current) {
@@ -4145,7 +4434,10 @@ function StudioPage() {
         ...track,
         clips: track.clips.map((clip) => ({
           ...serializeClipForIndexedDB(clip),
-          sourceUrl: clip.sourceUrl.startsWith("blob:") ? "" : clip.sourceUrl,
+          sourceUrl:
+            typeof clip.sourceUrl === "string" && !clip.sourceUrl.startsWith("blob:")
+              ? clip.sourceUrl
+              : "",
         })),
       })),
     };
@@ -4315,6 +4607,21 @@ function StudioPage() {
         pasteClipboard();
         return;
       }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        duplicateSelectedClip();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        repeatSelectedClip();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e") {
+        event.preventDefault();
+        setIsExportOpen(true);
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         manualSaveProject();
@@ -4339,11 +4646,27 @@ function StudioPage() {
         return;
       }
       if (event.key.toLowerCase() === "p") {
-        event.preventDefault();
         const recorder = mediaRecorderRef.current;
-        if (recorder?.state === "recording") pauseRecording();
-        else if (recorder?.state === "paused") resumeRecording();
-        else togglePlayback();
+        if (recorder?.state === "recording" || recorder?.state === "paused") {
+          event.preventDefault();
+          if (recorder.state === "recording") pauseRecording();
+          else resumeRecording();
+        }
+        return;
+      }
+      if (event.key.toLowerCase() === "m") {
+        const currentProject = projectRef.current;
+        const selectedTrack = currentProject?.tracks.find(
+          (track) => track.id === currentProject.selectedTrackId,
+        );
+        if (selectedTrack) {
+          event.preventDefault();
+          executeEditingCommand((projectToEdit) =>
+            updateTrackInProject(projectToEdit, selectedTrack.id, {
+              muted: !selectedTrack.muted,
+            }),
+          );
+        }
         return;
       }
       if (event.key === "Home") {
@@ -4354,6 +4677,12 @@ function StudioPage() {
       if (event.key === "End") {
         event.preventDefault();
         goToEnd();
+        return;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        const direction = event.key === "ArrowLeft" ? -1 : 1;
+        movePlayhead(direction * (event.shiftKey ? 5 : 1));
         return;
       }
 
@@ -4565,20 +4894,26 @@ function StudioPage() {
           table: "studio_projects",
         },
         (payload) => {
-          const updatedBy = (payload.new as { updated_by?: string } | null)?.updated_by;
-          if (updatedBy === currentUserId) return;
+          const row = (payload.new || payload.old) as {
+            client_mutation_id?: string;
+            updated_by?: string;
+          };
+          if (
+            row.updated_by === currentUserId ||
+            (row.client_mutation_id && localMutationIdsRef.current.has(row.client_mutation_id))
+          ) return;
           if (projectRef.current?.isDirty) {
             const serverVersion = Number(
               (payload.new as { version?: number } | null)?.version ||
                 (projectRef.current.version + 1),
             );
             setConflictServerVersion(serverVersion);
-            setMessage("Projektet har ändrats av Arvid");
+            setMessage("Projektet har ändrats av en annan teammedlem.");
             return;
           }
 
           void loadStudioProject(activeProject.podcastId, activeProject.episodeId).then(() =>
-            setMessage("Projektet har ändrats av Arvid"),
+            setMessage("Projektet har ändrats av en annan teammedlem."),
           );
         },
       )
@@ -4590,15 +4925,15 @@ function StudioPage() {
           schema: "public",
           table: "studio_tracks",
         },
-        async () => {
+        async (payload) => {
+          const row = (payload.new || payload.old) as { client_mutation_id?: string; updated_by?: string };
+          if (row.updated_by === currentUserId || (row.client_mutation_id && localMutationIdsRef.current.has(row.client_mutation_id))) return;
           if (Date.now() < ignoreRealtimeUntilRef.current) return;
           if (projectRef.current?.isDirty) {
-            setMessage("Spåret ändrades av en annan teammedlem");
             return;
           }
 
           await loadStudioProject(activeProject.podcastId, activeProject.episodeId);
-          setMessage("Spåret ändrades av en annan teammedlem");
         },
       )
       .on(
@@ -4609,14 +4944,62 @@ function StudioPage() {
           schema: "public",
           table: "studio_clips",
         },
-        () => {
+        (payload) => {
+          const row = (payload.new || payload.old) as { client_mutation_id?: string; updated_by?: string };
+          if (row.updated_by === currentUserId || (row.client_mutation_id && localMutationIdsRef.current.has(row.client_mutation_id))) return;
           if (Date.now() < ignoreRealtimeUntilRef.current) return;
-          if (projectRef.current?.isDirty) {
-            setMessage("Projektet har ändrats av en annan teammedlem.");
-            return;
-          }
+          if (projectRef.current?.isDirty) return;
 
           loadStudioProject(activeProject.podcastId, activeProject.episodeId);
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          filter: `project_id=eq.${activeProject.id}`,
+          schema: "public",
+          table: "studio_edit_commands",
+        },
+        (payload) => {
+          const command = payload.new as {
+            after_state?: { selectedTrackId?: string; tracks?: Array<{ id: string; name: string }> };
+            client_mutation_id?: string;
+            command_type?: string;
+            user_id?: string;
+          };
+          if (
+            command.user_id === currentUserId ||
+            (command.client_mutation_id && localMutationIdsRef.current.has(command.client_mutation_id))
+          ) return;
+          const actor = members.find((member) => member.user_id === command.user_id);
+          const actorName = actor?.display_name || actor?.email || "En teammedlem";
+          const trackName = command.after_state?.tracks?.find(
+            (track) => track.id === command.after_state?.selectedTrackId,
+          )?.name;
+          const actionLabels: Record<string, string> = {
+            clip_created: "skapade ett klipp",
+            clip_deleted: "tog bort ett klipp",
+            clip_duplicated: "duplicerade ett klipp",
+            clip_moved: "flyttade ett klipp",
+            clip_repeated: "upprepade ett klipp",
+            clip_split: "delade ett klipp",
+            clip_trimmed: "trimmade ett klipp",
+            marker_created: "lade till en markör",
+            marker_deleted: "tog bort en markör",
+            recording_uploaded: "laddade upp en inspelning",
+            track_created: "skapade ett spår",
+            track_deleted: "tog bort ett spår",
+            track_renamed: `bytte namn på spåret${trackName ? ` ${trackName}` : ""}`,
+            version_saved: "sparade en projektversion",
+          };
+          const collaborationMessage = `${actorName} ${actionLabels[command.command_type || ""] || "uppdaterade studioprojektet"}.`;
+          setMessage(collaborationMessage);
+          window.setTimeout(() => {
+            setMessage((current) =>
+              current === collaborationMessage ? "" : current,
+            );
+          }, 5000);
         },
       )
       .on(
@@ -4627,12 +5010,11 @@ function StudioPage() {
           schema: "public",
           table: "studio_markers",
         },
-        () => {
+        (payload) => {
+          const row = (payload.new || payload.old) as { client_mutation_id?: string; updated_by?: string };
+          if (row.updated_by === currentUserId || (row.client_mutation_id && localMutationIdsRef.current.has(row.client_mutation_id))) return;
           if (Date.now() < ignoreRealtimeUntilRef.current) return;
-          if (projectRef.current?.isDirty) {
-            setMessage("Projektet har ändrats av en annan teammedlem.");
-            return;
-          }
+          if (projectRef.current?.isDirty) return;
 
           loadStudioProject(activeProject.podcastId, activeProject.episodeId);
         },
@@ -4645,12 +5027,11 @@ function StudioPage() {
           schema: "public",
           table: "studio_files",
         },
-        () => {
+        (payload) => {
+          const row = (payload.new || payload.old) as { client_mutation_id?: string; updated_by?: string };
+          if (row.updated_by === currentUserId || (row.client_mutation_id && localMutationIdsRef.current.has(row.client_mutation_id))) return;
           if (Date.now() < ignoreRealtimeUntilRef.current) return;
-          if (projectRef.current?.isDirty) {
-            setMessage("Projektet har ändrats av en annan teammedlem.");
-            return;
-          }
+          if (projectRef.current?.isDirty) return;
 
           loadStudioProject(activeProject.podcastId, activeProject.episodeId);
         },
@@ -4857,7 +5238,7 @@ function StudioPage() {
             </div>
           </header>
 
-          <nav className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap border-b border-zinc-900 bg-[#101010] px-1.5 [scrollbar-width:thin]">
+          <nav className="relative z-40 flex h-11 shrink-0 items-center gap-1 whitespace-nowrap border-b border-zinc-900 bg-[#101010] px-1.5">
             <TransportButton
               shortcut="R"
               icon={Circle}
@@ -4866,38 +5247,18 @@ function StudioPage() {
               tone="record"
             />
             <TransportButton shortcut="Esc" icon={Square} label="Stoppa" onClick={stopTransport} />
-            <TransportButton shortcut="P" icon={Pause} label="Pausa" onClick={pauseRecording} />
-            <TransportButton shortcut="P" icon={Play} label="Fortsätt" onClick={resumeRecording} />
+            <TransportButton
+              shortcut="P"
+              icon={project?.recordingStatus === "paused" ? Play : Pause}
+              label={project?.recordingStatus === "paused" ? "Fortsätt" : "Pausa"}
+              onClick={project?.recordingStatus === "paused" ? resumeRecording : pauseRecording}
+            />
             <TransportButton
               shortcut="Space"
               icon={Play}
               label={isPlaying ? "Pausa" : "Spela"}
               onClick={togglePlayback}
             />
-            <TransportButton
-              shortcut="Home"
-              icon={RotateCcw}
-              label="Början"
-              onClick={goToStart}
-            />
-            <TransportButton shortcut="End" icon={RotateCw} label="Slutet" onClick={goToEnd} />
-            <TransportButton
-              shortcut="← 5 s"
-              icon={ChevronLeft}
-              label="Bakåt 5 s"
-              onClick={() => movePlayhead(-5)}
-            />
-            <TransportButton
-              shortcut="→ 5 s"
-              icon={ChevronRight}
-              label="Framåt 5 s"
-              onClick={() => movePlayhead(5)}
-            />
-            <div className="mx-1 h-7 w-px bg-zinc-800" />
-
-            <TransportButton shortcut="⌘Z" icon={Undo2} label="Ångra" onClick={undoLastClipEdit} />
-            <TransportButton shortcut="⌘⇧Z" icon={Redo2} label="Gör om" onClick={redoLastClipEdit} />
-
             <span
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded bg-[#1DB954] text-xs font-bold text-black ring-1 ring-zinc-800 min-[1600px]:w-auto min-[1600px]:gap-1.5 min-[1600px]:px-2"
               title="Markeringsverktyg"
@@ -4906,8 +5267,19 @@ function StudioPage() {
               <span className="hidden min-[1600px]:inline">Markera</span>
             </span>
             <TransportButton shortcut="S" icon={Columns3} label="Dela" onClick={() => splitSelectedClipAt([project?.playheadSeconds || 0])} />
-            <TransportButton shortcut="⌘X" icon={Scissors} label="Klipp ut" onClick={cutSelection} />
-            <UnavailableButton icon={Waves} label="Fäst" />
+            <TransportButton shortcut="Delete" icon={Trash2} label="Ta bort" onClick={() => selectedRange() ? deleteMarkedRange() : deleteSelectedClip()} />
+
+            <div className="hidden items-center gap-1 min-[1450px]:flex">
+              <TransportButton shortcut="Home" icon={RotateCcw} label="Början" onClick={goToStart} />
+              <TransportButton shortcut="End" icon={RotateCw} label="Slutet" onClick={goToEnd} />
+              <TransportButton shortcut="Shift+←" icon={ChevronLeft} label="Bakåt 5 s" onClick={() => movePlayhead(-5)} />
+              <TransportButton shortcut="Shift+→" icon={ChevronRight} label="Framåt 5 s" onClick={() => movePlayhead(5)} />
+              <TransportButton shortcut="⌘Z/Ctrl+Z" icon={Undo2} label="Ångra" onClick={undoLastClipEdit} />
+              <TransportButton shortcut="⌘⇧Z/Ctrl+Shift+Z" icon={Redo2} label="Gör om" onClick={redoLastClipEdit} />
+              <TransportButton shortcut="⌘C/Ctrl+C" icon={Copy} label="Kopiera" onClick={copySelection} />
+              <TransportButton shortcut="⌘X/Ctrl+X" icon={Scissors} label="Klipp ut" onClick={cutSelection} />
+              <TransportButton shortcut="⌘D/Ctrl+D" icon={Copy} label="Duplicera" onClick={duplicateSelectedClip} />
+            </div>
 
             <button
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded bg-[#1DB954] text-xs font-bold text-black min-[1600px]:w-auto min-[1600px]:gap-1.5 min-[1600px]:px-2"
@@ -4924,7 +5296,50 @@ function StudioPage() {
               <span className="hidden min-[1600px]:inline">Lägg till spår</span>
             </button>
 
-            <div className="ml-auto flex items-center gap-1">
+            <div className="relative ml-auto min-[1700px]:hidden">
+              <button
+                className="inline-flex h-8 items-center gap-1.5 rounded bg-[#181818] px-2 text-[11px] font-bold text-zinc-300 ring-1 ring-zinc-800 hover:text-white"
+                onClick={() => setIsMoreOpen((open) => !open)}
+                type="button"
+              >
+                <MoreHorizontal size={15} /> Fler
+              </button>
+              {isMoreOpen ? (
+                <div className="absolute right-0 top-9 z-50 grid w-52 overflow-hidden rounded-lg border border-zinc-800 bg-[#181818] p-1 text-xs shadow-2xl">
+                  {[
+                    { label: "Början", action: goToStart },
+                    { label: "Slutet", action: goToEnd },
+                    { label: "Bakåt 5 sekunder", action: () => movePlayhead(-5) },
+                    { label: "Framåt 5 sekunder", action: () => movePlayhead(5) },
+                    { label: "Ångra", action: undoLastClipEdit },
+                    { label: "Gör om", action: redoLastClipEdit },
+                    { label: "Kopiera", action: copySelection },
+                    { label: "Klipp ut", action: cutSelection },
+                    { label: "Duplicera", action: duplicateSelectedClip },
+                    { label: "Upprepa…", action: repeatSelectedClip },
+                    { label: "Zooma ut", action: () => setProject((value) => ({ ...value, zoom: Math.max(80, value.zoom - 10) })) },
+                    { label: "Zooma in", action: () => setProject((value) => ({ ...value, zoom: Math.min(260, value.zoom + 10) })) },
+                    { label: "Spara", action: manualSaveProject },
+                    { label: "Exportera", action: () => setIsExportOpen(true) },
+                  ].map((item) => (
+                    <button
+                      className="rounded px-3 py-2 text-left font-semibold text-zinc-300 hover:bg-[#242424] hover:text-white"
+                      key={item.label}
+                      onClick={() => {
+                        item.action();
+                        setIsMoreOpen(false);
+                      }}
+                      type="button"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="ml-auto hidden items-center gap-1 min-[1700px]:flex">
+              <TransportButton shortcut="⌘R/Ctrl+R" icon={Copy} label="Upprepa" onClick={repeatSelectedClip} />
               <button
                 className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded bg-[#181818] px-2 text-[11px] font-bold text-zinc-300 ring-1 ring-zinc-800 transition hover:text-white"
                 onClick={manualSaveProject}
@@ -5855,19 +6270,19 @@ function TrackHeader({ track }: { track: StudioTrack }) {
       return;
     }
 
+    if (!project || project.tracks.length === 1) {
+      setMessage("Minst ett spår krävs.");
+      return;
+    }
+
+    if (
+      track.clips.length > 0 &&
+      !window.confirm("Spåret innehåller ljudklipp. Ta bort spåret och klippen?")
+    ) {
+      return;
+    }
+
     executeEditingCommand((currentProject) => {
-      if (currentProject.tracks.length === 1) {
-        setMessage("Minst ett spår krävs.");
-        return currentProject;
-      }
-
-      if (
-        track.clips.length > 0 &&
-        !window.confirm("Spåret innehåller ljudklipp. Ta bort ändå?")
-      ) {
-        return currentProject;
-      }
-
       const nextTracks = reorderTracks(
         currentProject.tracks.filter(
           (currentTrack) => currentTrack.id !== track.id,
@@ -5877,6 +6292,11 @@ function TrackHeader({ track }: { track: StudioTrack }) {
       return {
         ...currentProject,
         isDirty: true,
+        selectedClipId: track.clips.some(
+          (clip) => clip.id === currentProject.selectedClipId,
+        )
+          ? ""
+          : currentProject.selectedClipId,
         selectedTrackId:
           currentProject.selectedTrackId === track.id
             ? nextTracks[0]?.id || ""
@@ -5888,7 +6308,7 @@ function TrackHeader({ track }: { track: StudioTrack }) {
 
   return (
     <div
-      className={`relative overflow-hidden border-b border-zinc-900 px-2 py-1 ${
+      className={`relative overflow-visible border-b border-zinc-900 px-2 py-1 ${
         isSelected ? "bg-[#102318]" : "bg-[#0d0d0d]"
       }`}
       onClick={() => selectTrack(track.id)}
@@ -5910,13 +6330,25 @@ function TrackHeader({ track }: { track: StudioTrack }) {
           value={track.name}
         />
         {canEdit ? (
-          <TrackMenu
-            onDelete={deleteTrack}
-            onDuplicate={duplicateTrack}
-            onMoveDown={() => moveTrack(1)}
-            onMoveUp={() => moveTrack(-1)}
-            onRename={renameTrack}
-          />
+          <>
+            {project && project.tracks.length > 1 ? (
+              <button
+                className="rounded p-1 text-zinc-500 hover:bg-red-500/15 hover:text-red-400"
+                onClick={deleteTrack}
+                title={`Ta bort ${track.name}`}
+                type="button"
+              >
+                <Trash2 size={14} />
+              </button>
+            ) : null}
+            <TrackMenu
+              onDelete={deleteTrack}
+              onDuplicate={duplicateTrack}
+              onMoveDown={() => moveTrack(1)}
+              onMoveUp={() => moveTrack(-1)}
+              onRename={renameTrack}
+            />
+          </>
         ) : null}
       </div>
 
@@ -6256,8 +6688,8 @@ function InteractiveClip({
 
     if (error) {
       console.error("Kunde inte spara klippändring:", error);
-      setProject(() => previousProject);
-      setMessage("Kunde inte spara klippändringen.");
+      void saveLocalProject(project || previousProject);
+      setMessage("Ändringen är sparad lokalt men inte i molnet.");
       return;
     }
 
