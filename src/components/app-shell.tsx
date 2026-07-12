@@ -5,7 +5,16 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, ChevronDown, Home, Library, Search, Settings } from "lucide-react";
+import {
+  Bell,
+  ChevronDown,
+  FolderOpen,
+  Home,
+  Library,
+  SlidersHorizontal,
+  Search,
+  Settings,
+} from "lucide-react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -632,6 +641,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
+  if (pathname === "/studio") {
+    return <>{children}</>;
+  }
+
   if (podcasts.length === 0) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#050505] px-6 text-zinc-100">
@@ -707,6 +720,28 @@ export default function AppShell({ children }: { children: ReactNode }) {
           >
             <Library size={18} strokeWidth={2} />
             Avsnitt
+          </Link>
+          <Link
+            className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
+              pathname === "/material"
+                ? "bg-[#181818] text-white shadow-lg shadow-black/20"
+                : "text-zinc-300 hover:bg-[#111111] hover:text-white"
+            }`}
+            href="/material"
+          >
+            <FolderOpen size={18} strokeWidth={2} />
+            Material
+          </Link>
+          <Link
+            className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
+              pathname === "/studio"
+                ? "bg-[#181818] text-white shadow-lg shadow-black/20"
+                : "text-zinc-300 hover:bg-[#111111] hover:text-white"
+            }`}
+            href="/studio"
+          >
+            <SlidersHorizontal size={18} strokeWidth={2} />
+            Studio
           </Link>
           <Link
             className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
@@ -1158,7 +1193,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <div className="pb-24 md:pb-0">{children}</div>
 
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-900 bg-[#050505]/95 px-4 pb-4 pt-2 backdrop-blur md:hidden">
-          <div className="mx-auto grid max-w-md grid-cols-3 gap-2 rounded-2xl bg-[#111111] p-1.5 shadow-2xl shadow-black/50 ring-1 ring-zinc-900">
+          <div className="mx-auto grid max-w-lg grid-cols-5 gap-2 rounded-2xl bg-[#111111] p-1.5 shadow-2xl shadow-black/50 ring-1 ring-zinc-900">
             <Link
               className={`flex flex-col items-center gap-1 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
                 pathname === "/"
@@ -1180,6 +1215,28 @@ export default function AppShell({ children }: { children: ReactNode }) {
             >
               <Library size={18} strokeWidth={2} />
               Avsnitt
+            </Link>
+            <Link
+              className={`flex flex-col items-center gap-1 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                pathname === "/material"
+                  ? "bg-[#1DB954] text-black"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+              href="/material"
+            >
+              <FolderOpen size={18} strokeWidth={2} />
+              Material
+            </Link>
+            <Link
+              className={`flex flex-col items-center gap-1 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                pathname === "/studio"
+                  ? "bg-[#1DB954] text-black"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+              href="/studio"
+            >
+              <SlidersHorizontal size={18} strokeWidth={2} />
+              Studio
             </Link>
             <Link
               className={`flex flex-col items-center gap-1 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
