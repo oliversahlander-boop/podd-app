@@ -18,6 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { Skeleton } from "@/components/ui";
 
 type Podcast = {
   id: string;
@@ -480,7 +481,7 @@ export default function Home() {
   );
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+    <main className="product-shell min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 sm:gap-10">
         <header className="rounded-2xl bg-[#111111] p-4 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 sm:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -514,7 +515,7 @@ export default function Home() {
             <div className="grid grid-cols-3 gap-2 sm:min-w-96 sm:gap-3">
               {[
                 ["Avsnitt", episodes.length],
-                ["Progress", `${averageProgress}%`],
+                ["Förlopp", `${averageProgress}%`],
                 ["Filer", productionFiles.length],
               ].map(([label, value]) => (
                 <div
@@ -536,10 +537,7 @@ export default function Home() {
         {isLoading ? (
           <section className="grid gap-6 lg:grid-cols-3">
             {[0, 1, 2, 3, 4, 5].map((item) => (
-              <div
-                className="h-48 animate-pulse rounded-2xl bg-[#111111]"
-                key={item}
-              />
+              <Skeleton className="h-48" key={item} />
             ))}
           </section>
         ) : (
@@ -548,7 +546,7 @@ export default function Home() {
               <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                    Continue Working
+                    Fortsätt arbeta
                   </h2>
                   <Clock3 className="text-zinc-500" size={20} />
                 </div>
@@ -641,7 +639,7 @@ export default function Home() {
               <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                    Upcoming Deadlines
+                    Kommande deadlines
                   </h2>
                   <CalendarDays className="text-zinc-500" size={20} />
                 </div>
@@ -678,7 +676,7 @@ export default function Home() {
               <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                    Latest Uploads
+                    Senaste uppladdningar
                   </h2>
                   <Upload className="text-zinc-500" size={20} />
                 </div>
@@ -721,7 +719,7 @@ export default function Home() {
               <div className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                    Production Statistics
+                    Produktionsstatistik
                   </h2>
                   <BarChart3 className="text-zinc-500" size={20} />
                 </div>
@@ -751,7 +749,7 @@ export default function Home() {
             <section>
               <div className="mb-5 flex items-center justify-between gap-4">
                 <h2 className="text-xl font-semibold text-white sm:text-2xl">
-                  Episode Progress
+                  Avsnittens förlopp
                 </h2>
                 <Link
                   className="text-sm font-bold text-[#1DB954] transition hover:text-[#22d760]"

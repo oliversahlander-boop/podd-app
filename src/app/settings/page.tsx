@@ -567,7 +567,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+    <main className="product-shell min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 sm:gap-8">
         <header className="border-b border-zinc-900 pb-8">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
@@ -798,7 +798,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 {isOwner ? (
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
                     <select
                       className="rounded-full border border-zinc-800 bg-[#111111] px-3 py-2 text-xs font-bold text-zinc-200 outline-none transition focus:border-[#1DB954] disabled:cursor-not-allowed disabled:opacity-50"
                       disabled={member.user_id === user?.id}

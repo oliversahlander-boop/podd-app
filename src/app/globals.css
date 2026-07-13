@@ -1,8 +1,19 @@
 @import "tailwindcss";
+@import "../../styles/design-tokens.css";
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --product-bg: #050505;
+  --product-surface: #111111;
+  --product-surface-raised: #181818;
+  --product-border: #27272a;
+  --product-accent: #1db954;
+  --product-radius: 20px;
+  --product-control-radius: 14px;
+  --product-card-padding: 32px;
+  --product-section-gap: 24px;
+  --product-shadow: 0 18px 45px rgb(0 0 0 / 0.24);
 }
 
 @theme inline {
@@ -25,6 +36,11 @@ body {
   overflow-x: hidden;
 }
 
+html,
+body {
+  max-width: 100%;
+}
+
 ::selection {
   background: #1db954;
   color: #000000;
@@ -42,4 +58,127 @@ img,
 video,
 iframe {
   max-width: 100%;
+}
+
+/* Gemensamt visuellt system för appens huvudsidor. */
+.product-shell {
+  background: var(--product-bg);
+  color: #f4f4f5;
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+.product-shell,
+.product-shell * {
+  min-width: 0;
+}
+
+.product-shell :is(p, li, dd, figcaption, label) {
+  overflow-wrap: anywhere;
+}
+
+.product-shell :is(input, select, textarea, button) {
+  max-width: 100%;
+}
+
+.product-shell:not(.product-studio) :is(article, aside, section[class*="shadow"]) {
+  border-radius: var(--product-radius) !important;
+  box-shadow: var(--product-shadow) !important;
+}
+
+.product-shell:not(.product-studio) :is(article, section[class*="shadow"]) {
+  padding: var(--product-card-padding) !important;
+}
+
+.product-shell :is(h1, h2, h3) {
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.product-shell h1 {
+  font-size: clamp(2rem, 4vw, 3rem) !important;
+  line-height: 1.08;
+}
+
+.product-shell h2 {
+  font-size: 1.5rem !important;
+  line-height: 1.25;
+}
+
+.product-shell h3 {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.product-shell :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select) {
+  min-height: 56px;
+  border-radius: var(--product-control-radius) !important;
+  border-color: var(--product-border);
+  background-color: var(--product-surface-raised);
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.product-shell textarea {
+  border-radius: var(--product-control-radius) !important;
+  border-color: var(--product-border);
+  background-color: var(--product-surface-raised);
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.product-shell :is(input, select, textarea):focus {
+  border-color: var(--product-accent) !important;
+  box-shadow: 0 0 0 3px rgb(29 185 84 / 0.12);
+}
+
+.product-shell button:not([aria-label]) {
+  min-height: 48px;
+  border-radius: var(--product-control-radius) !important;
+  transition: transform 180ms ease, background-color 180ms ease, color 180ms ease, opacity 180ms ease;
+}
+
+.product-shell button:not([aria-label]):not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.product-shell :is(article, aside, section[class*="shadow"], button, a, input, select, textarea) {
+  transition-duration: 180ms;
+  transition-timing-function: ease;
+}
+
+.product-shell:not(.product-studio) > div {
+  gap: var(--product-section-gap);
+}
+
+/* Studio använder samma formspråk men en tät professionell editor-densitet. */
+.product-studio :is(input:not([type="range"]), select) {
+  min-height: 32px;
+}
+
+.product-studio button:not([aria-label]) {
+  min-height: 32px;
+  border-radius: 8px !important;
+}
+
+@media (max-width: 639px) {
+  :root {
+    --product-card-padding: 16px;
+    --product-section-gap: 16px;
+  }
+
+  .product-shell h1 {
+    font-size: clamp(1.75rem, 9vw, 2.25rem) !important;
+  }
+
+  .product-shell h2 {
+    font-size: 1.25rem !important;
+  }
+
+  .product-shell button:not([aria-label]) {
+    white-space: normal;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  :root {
+    --product-card-padding: 24px;
+  }
 }

@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Cropper, { Area } from "react-easy-crop";
 import {
@@ -14,6 +14,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  GripVertical,
   ImageIcon,
   LinkIcon,
   Loader2,
@@ -440,10 +441,16 @@ export default function EpisodeDetailPage() {
   const [responsiblePerson, setResponsiblePerson] = useState("");
   const [recordingDate, setRecordingDate] = useState("");
   const [script, setScript] = useState("");
+  const [isScriptMonospace, setIsScriptMonospace] = useState(false);
+  const lastSavedScriptRef = useRef("");
+  const scriptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const scriptLineNumbersRef = useRef<HTMLDivElement | null>(null);
+  const scriptAutosaveTimerRef = useRef<number | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [segmentTitle, setSegmentTitle] = useState("");
   const [segmentNotes, setSegmentNotes] = useState("");
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
+  const [draggedSegmentId, setDraggedSegmentId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [links, setLinks] = useState("");
   const [checklistState, setChecklistState] = useState<ChecklistState>({});
@@ -522,6 +529,12 @@ export default function EpisodeDetailPage() {
     (item) => checklistState[item],
   ).length;
   const scriptWordCount = script.trim().split(/\s+/).filter(Boolean).length;
+  const scriptCharacterCount = script.length;
+  const scriptReadingMinutes = Math.max(1, Math.ceil(scriptWordCount / 180));
+  const scriptLineNumbers = useMemo(
+    () => Array.from({ length: Math.max(1, script.split("\n").length) }, (_, index) => index + 1),
+    [script],
+  );
   const scriptStatus = script.trim()
     ? `Påbörjat · ${scriptWordCount} ord`
     : "Saknas";
@@ -534,6 +547,7 @@ export default function EpisodeDetailPage() {
     setResponsiblePerson(nextEpisode.responsible_person || "");
     setRecordingDate(nextEpisode.recording_date || "");
     setScript(nextEpisode.script || "");
+    lastSavedScriptRef.current = nextEpisode.script || "";
     setSegments(nextEpisode.segments || []);
     setNotes(nextEpisode.notes || "");
     setLinks(nextEpisode.links || "");
@@ -550,6 +564,13 @@ export default function EpisodeDetailPage() {
     setPublishingChecklist(nextEpisode.publishing_checklist || {});
     setPublishHistory(nextEpisode.publish_history || []);
   }
+
+  useEffect(
+    () => () => {
+      if (scriptAutosaveTimerRef.current) window.clearTimeout(scriptAutosaveTimerRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -962,6 +983,7 @@ export default function EpisodeDetailPage() {
     const saved = await saveEpisodeFields({ script }, "Manus sparat.");
 
     if (saved) {
+      lastSavedScriptRef.current = script;
       await createNotification({
         body: title,
         podcastId: episode?.podcast_id || null,
@@ -970,6 +992,17 @@ export default function EpisodeDetailPage() {
         type: "episode_updated",
       });
     }
+  }
+
+  function updateScript(nextScript: string) {
+    setScript(nextScript);
+    if (!canManageEpisode) return;
+    if (scriptAutosaveTimerRef.current) window.clearTimeout(scriptAutosaveTimerRef.current);
+    scriptAutosaveTimerRef.current = window.setTimeout(async () => {
+      if (nextScript === lastSavedScriptRef.current) return;
+      const saved = await saveEpisodeFields({ script: nextScript }, "Manus autosparat.");
+      if (saved) lastSavedScriptRef.current = nextScript;
+    }, 1200);
   }
 
   async function saveSegments(nextSegments: Segment[]) {
@@ -2523,13 +2556,18 @@ export default function EpisodeDetailPage() {
         ) : null}
 
         {!isCollapsed && canManageEpisode && group.key === "link" ? (
-          <form className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]" onSubmit={addExternalLink}>
+          <form className="mt-4 grid gap-5" onSubmit={addExternalLink}>
+            <label className="grid text-zinc-300">
+              Länknamn
             <input
               className="rounded-xl border border-zinc-800 bg-[#111111] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
               onChange={(event) => setExternalLinkName(event.target.value)}
               placeholder="Länknamn"
               value={externalLinkName}
             />
+            </label>
+            <label className="grid text-zinc-300">
+              Webbadress
             <input
               className="rounded-xl border border-zinc-800 bg-[#111111] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
               onChange={(event) => setExternalLinkUrl(event.target.value)}
@@ -2537,8 +2575,9 @@ export default function EpisodeDetailPage() {
               type="url"
               value={externalLinkUrl}
             />
+            </label>
             <button
-              className="rounded-full bg-[#1DB954] px-5 py-3 text-sm font-bold text-black transition hover:bg-[#22d760]"
+              className="ml-auto w-fit bg-[#1DB954] px-5 text-sm font-bold text-black hover:bg-[#22d760]"
               type="submit"
             >
               Lägg till länk
@@ -2741,12 +2780,12 @@ export default function EpisodeDetailPage() {
 
   function renderInformationSidebar() {
     return (
-      <aside className="h-fit rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 xl:sticky xl:top-6 sm:p-5">
+      <aside className="h-fit rounded-[20px] bg-[#111111] p-8 shadow-xl shadow-black/20 ring-1 ring-zinc-900 xl:sticky xl:top-6">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#1DB954]">
           Information
         </p>
 
-        <div className="mt-4 overflow-hidden rounded-xl bg-[#181818]">
+        <div className="hidden">
           {thumbnail ? (
             <img
               alt=""
@@ -2760,17 +2799,17 @@ export default function EpisodeDetailPage() {
           )}
         </div>
 
-        <div className="mt-5 grid gap-3">
-          <div className="rounded-xl bg-[#181818] p-4">
-            <p className="text-xs font-semibold text-zinc-500">Status</p>
+        <div className="mt-6 grid gap-4">
+          <div className="order-3 min-h-[120px] rounded-[20px] bg-[#181818] p-5">
+            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500"><CheckCircle2 size={15} /> Status</p>
             <p className="mt-1 text-sm font-bold text-white">
               {stageLabel(status)}
             </p>
           </div>
 
-          <div className="rounded-xl bg-[#181818] p-4">
+          <div className="order-1 min-h-[140px] rounded-[20px] bg-[#181818] p-5">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-semibold text-zinc-500">Produktion</p>
+              <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500"><FileText size={15} /> Information</p>
               <span className="text-xs font-bold text-[#1DB954]">
                 {productionPercent}%
               </span>
@@ -2781,40 +2820,61 @@ export default function EpisodeDetailPage() {
                 style={{ width: `${productionPercent}%` }}
               />
             </div>
-            <p className="mt-2 text-xs text-zinc-500">
+            <p className="mt-3 text-xs text-zinc-500">
+              Produktion · {stageLabel(status)}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
               {completedChecklistCount}/{checklistItems.length} punkter klara
             </p>
           </div>
 
-          <div className="rounded-xl bg-[#181818] p-4">
-            <p className="text-xs font-semibold text-zinc-500">Ansvarig</p>
+          <div className="order-2 min-h-[120px] rounded-[20px] bg-[#181818] p-5">
+            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500"><UserRound size={15} /> Ansvarig</p>
             <p className="mt-1 text-sm font-bold text-white">
               {responsiblePerson || "Ingen ansvarig"}
             </p>
           </div>
 
-          <div className="rounded-xl bg-[#181818] p-4">
-            <p className="text-xs font-semibold text-zinc-500">Senast ändrad</p>
+          <div className="order-4 min-h-[120px] rounded-[20px] bg-[#181818] p-5">
+            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500"><Save size={15} /> Senast sparad</p>
             <p className="mt-1 text-sm font-bold text-white">
               {formatUpdatedAt(episode?.updated_at)}
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-[#181818] p-4">
+          <div className="order-8 grid min-h-[140px] grid-cols-2 gap-3 rounded-[20px] bg-[#181818] p-5">
+            <p className="col-span-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500"><FileText size={15} /> Statistik</p>
+            <div>
               <p className="text-xs font-semibold text-zinc-500">Antal filer</p>
               <p className="mt-1 text-2xl font-bold text-white">
                 {totalFileCount}
               </p>
             </div>
-            <div className="rounded-xl bg-[#181818] p-4">
+            <div>
               <p className="text-xs font-semibold text-zinc-500">Manusstatus</p>
               <p className="mt-1 text-sm font-bold text-white">{scriptStatus}</p>
             </div>
           </div>
 
-          <div className="rounded-xl bg-[#181818] p-4">
-            <p className="text-xs font-semibold text-zinc-500">
+          <div className="order-6 min-h-[120px] rounded-[20px] bg-[#181818] p-5">
+            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500"><PlayCircle size={15} /> Aktivitet</p>
+            <p className="mt-1 text-sm font-bold text-white">
+              {publishHistory.length > 0
+                ? `${publishHistory.length} publiceringshändelser`
+                : "Ingen aktivitet ännu"}
+            </p>
+          </div>
+
+          <div className="order-7 min-h-[120px] rounded-[20px] bg-[#181818] p-5">
+            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500"><Download size={15} /> Filer</p>
+            <p className="mt-1 text-sm font-bold text-white">
+              {totalFileCount} {totalFileCount === 1 ? "fil" : "filer"}
+            </p>
+          </div>
+
+          <div className="order-5 min-h-[120px] rounded-[20px] bg-[#181818] p-5">
+            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              <Upload size={15} />
               Publiceringsstatus
             </p>
             <p className="mt-1 text-sm font-bold text-white">
@@ -2825,7 +2885,7 @@ export default function EpisodeDetailPage() {
             </p>
           </div>
 
-          <div className="rounded-xl bg-[#181818] p-4">
+          <div className="order-6 min-h-[120px] rounded-[20px] bg-[#181818] p-5">
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-semibold text-zinc-500">
                 Visar just nu
@@ -2860,7 +2920,7 @@ export default function EpisodeDetailPage() {
     <>
       {renderMaterialPreviewModal()}
       {renderMaterialConflictModal()}
-      <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+      <main className="product-shell min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14 [&_form]:gap-5 [&_form_input]:h-14 [&_form_input]:w-full [&_form_input]:rounded-[14px] [&_form_textarea]:min-h-[220px] [&_form_textarea]:w-full [&_form_textarea]:rounded-[14px] [&_form_button]:h-14 [&_form_button]:rounded-[14px] [&_form_button]:transition [&_form_button]:duration-200 [&_form_button:hover]:brightness-110 [&_form_label]:gap-2 [&_form_label]:text-[15px] [&_form_input[type=checkbox]]:h-4 [&_form_input[type=checkbox]]:w-4 [&_form_input[type=file]]:h-auto">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 sm:gap-8">
         <Link
           className="w-fit rounded-full bg-[#111111] px-4 py-2 text-sm font-semibold text-zinc-300 ring-1 ring-zinc-900 transition hover:bg-[#181818] hover:text-white"
@@ -2869,7 +2929,7 @@ export default function EpisodeDetailPage() {
           Tillbaka till avsnitt
         </Link>
 
-        <header className="grid gap-5 rounded-2xl bg-[#111111] p-4 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 sm:gap-8 sm:p-6 lg:grid-cols-[0.7fr_1.3fr] lg:p-8">
+        <header className="grid gap-8 rounded-[20px] bg-[#111111] p-8 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 lg:grid-cols-[320px_minmax(0,1fr)]">
           <div>
             <div className="flex aspect-square items-center justify-center overflow-hidden rounded-2xl bg-[#181818] shadow-2xl shadow-black/50">
               {thumbnail ? (
@@ -2929,14 +2989,16 @@ export default function EpisodeDetailPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#1DB954]">
               Avsnittsarbetsyta
             </p>
-            <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white sm:text-6xl">
+            <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white">
               {episode?.title || "Avsnitt"}
             </h1>
-            <p className="mt-5 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
+            <p className="mt-4 max-w-3xl text-[15px] leading-7 text-zinc-400">
               {episode?.description || "Ingen beskrivning ännu."}
             </p>
             <div className="mt-6 flex flex-wrap gap-3 text-sm text-zinc-400">
-              {renderProductionTimeline()}
+              <span className="inline-flex items-center gap-2 rounded-full bg-[#181818] px-3 py-1">
+                Status: {stageLabel(status)}
+              </span>
               <span className="inline-flex items-center gap-2 rounded-full bg-[#181818] px-3 py-1">
                 <UserRound size={14} />
                 {episode?.responsible_person || "Ingen ansvarig"}
@@ -2945,7 +3007,13 @@ export default function EpisodeDetailPage() {
                 <CalendarDays size={14} />
                 {episode?.recording_date || "Inget inspelningsdatum"}
               </span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-[#181818] px-3 py-1 text-[#1DB954]">
+                Förlopp: {productionPercent}%
+              </span>
             </div>
+          </div>
+          <div className="border-t border-zinc-800 pt-6 lg:col-span-2">
+            {renderProductionTimeline()}
           </div>
         </header>
 
@@ -2955,12 +3023,14 @@ export default function EpisodeDetailPage() {
           </p>
         ) : null}
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="flex min-w-0 flex-col gap-6 sm:gap-8">
-        <section className="grid gap-4 sm:gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-            <h2 className="text-xl font-semibold text-white sm:text-2xl">Översikt</h2>
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,7fr)_minmax(280px,3fr)]">
+          <div className="flex min-w-0 flex-col">
+        <section className="flex flex-col">
+          <article className="order-1 mb-6 rounded-[20px] bg-[#111111] p-8 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+            <h2 className="text-2xl font-semibold text-white">Översikt</h2>
             <form className="mt-6 grid gap-4" onSubmit={saveOverview}>
+              <label className="grid text-zinc-300">
+                Avsnittsnamn
               <input
                 className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
@@ -2968,6 +3038,9 @@ export default function EpisodeDetailPage() {
                 placeholder="Titel"
                 value={title}
               />
+              </label>
+              <label className="grid text-zinc-300">
+                Beskrivning
               <textarea
                 className="min-h-28 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
@@ -2975,7 +3048,10 @@ export default function EpisodeDetailPage() {
                 placeholder="Beskrivning"
                 value={description}
               />
+              </label>
               {renderProductionTimeline()}
+              <label className="grid text-zinc-300">
+                Ansvarig
               <input
                 className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
@@ -2983,6 +3059,9 @@ export default function EpisodeDetailPage() {
                 placeholder="Ansvarig person"
                 value={responsiblePerson}
               />
+              </label>
+              <label className="grid text-zinc-300">
+                Inspelningsdatum
               <input
                 className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
@@ -2990,9 +3069,10 @@ export default function EpisodeDetailPage() {
                 type="date"
                 value={recordingDate}
               />
+              </label>
               {canManageEpisode ? (
                 <button
-                  className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:opacity-60"
+                  className="ml-auto w-fit bg-[#1DB954] px-6 text-sm font-bold text-black hover:bg-[#22d760] disabled:opacity-60"
                   disabled={isSaving}
                   type="submit"
                 >
@@ -3002,19 +3082,65 @@ export default function EpisodeDetailPage() {
             </form>
           </article>
 
-          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-            <h2 className="text-xl font-semibold text-white sm:text-2xl">Manus</h2>
+          <article className="order-2 mb-6 rounded-[20px] bg-[#111111] p-8 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#1DB954]">Manuseditor</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">{title || "Manus"}</h2>
+              </div>
+              <button
+                className={`h-10 rounded-xl px-4 text-xs font-bold transition ${isScriptMonospace ? "bg-[#1DB954] text-black" : "bg-[#181818] text-zinc-300 ring-1 ring-zinc-800 hover:text-white"}`}
+                onClick={() => setIsScriptMonospace((current) => !current)}
+                type="button"
+              >
+                Monospace {isScriptMonospace ? "på" : "av"}
+              </button>
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5">
+              {[
+                ["Rubrik", title || "Utan rubrik"],
+                ["Ord", scriptWordCount],
+                ["Tecken", scriptCharacterCount],
+                ["Lästid", `${scriptReadingMinutes} min`],
+                ["Senast sparad", formatUpdatedAt(episode?.updated_at)],
+              ].map(([label, value]) => (
+                <div className="rounded-xl bg-[#181818] p-4" key={label}>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-600">{label}</p>
+                  <p className="mt-2 truncate text-sm font-semibold text-zinc-200" title={String(value)}>{value}</p>
+                </div>
+              ))}
+            </div>
+
             <form className="mt-6 flex flex-col gap-4" onSubmit={saveScript}>
-              <textarea
-                className="min-h-72 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60 sm:min-h-96"
-                disabled={!canManageEpisode}
-                onChange={(event) => setScript(event.target.value)}
-                placeholder="Skriv manus här."
-                value={script}
-              />
+              <div className="relative overflow-hidden rounded-[20px] border border-zinc-800 bg-[#0d0d0d] focus-within:border-[#1DB954]">
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 left-0 w-14 overflow-hidden border-r border-zinc-800 bg-black/30 py-5 text-right font-mono text-[13px] leading-7 text-zinc-700"
+                  ref={scriptLineNumbersRef}
+                >
+                  {scriptLineNumbers.map((line) => <span className="block pr-3" key={line}>{line}</span>)}
+                </div>
+                <textarea
+                  className={`min-h-[560px] w-full resize-y rounded-none border-0 bg-transparent py-5 pl-[72px] pr-6 text-[15px] leading-7 text-zinc-100 outline-none placeholder:text-zinc-600 disabled:opacity-60 ${isScriptMonospace ? "font-mono" : "font-sans"}`}
+                  disabled={!canManageEpisode}
+                  onChange={(event) => updateScript(event.target.value)}
+                  onScroll={(event) => {
+                    if (scriptLineNumbersRef.current) scriptLineNumbersRef.current.scrollTop = event.currentTarget.scrollTop;
+                  }}
+                  placeholder="# Inledning\n\nSkriv manus här…"
+                  ref={scriptTextareaRef}
+                  spellCheck
+                  value={script}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 text-xs text-zinc-500">
+                <span>Markdown-liknande skrivyta · Autosparar efter ändringar</span>
+                <span>{isSaving ? "Sparar…" : "Autospara aktivt"}</span>
+              </div>
               {canManageEpisode ? (
                 <button
-                  className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:opacity-60"
+                  className="ml-auto w-fit bg-[#1DB954] px-6 text-sm font-bold text-black hover:bg-[#22d760] disabled:opacity-60"
                   disabled={isSaving}
                   type="submit"
                 >
@@ -3024,31 +3150,37 @@ export default function EpisodeDetailPage() {
             </form>
           </article>
 
-          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+          <article className="order-3 mb-6 flex flex-col rounded-[20px] bg-[#111111] p-8 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
             <div className="flex items-center justify-between gap-4">
-              <h2 className="text-xl font-semibold text-white sm:text-2xl">Segment</h2>
+              <h2 className="text-2xl font-semibold text-white">Segment</h2>
               <span className="rounded-full bg-[#181818] px-3 py-1 text-xs font-bold text-zinc-400">
                 {segments.length} segment
               </span>
             </div>
 
             {canManageEpisode ? (
-              <form className="mt-6 grid gap-3" onSubmit={saveSegment}>
+              <form className="order-3 mt-8 grid gap-5 border-t border-zinc-800 pt-8" onSubmit={saveSegment}>
+                <label className="grid text-zinc-300">
+                  Segmenttitel
                 <input
                   className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
                   onChange={(event) => setSegmentTitle(event.target.value)}
                   placeholder="Segmenttitel"
                   value={segmentTitle}
                 />
+                </label>
+                <label className="grid text-zinc-300">
+                  Segmentanteckningar
                 <textarea
                   className="min-h-24 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954]"
                   onChange={(event) => setSegmentNotes(event.target.value)}
                   placeholder="Segmentanteckningar"
                   value={segmentNotes}
                 />
+                </label>
                 <div className="flex flex-wrap gap-2">
                   <button
-                    className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:opacity-60"
+                    className="ml-auto w-full bg-[#1DB954] px-6 text-sm font-bold text-black hover:bg-[#22d760] disabled:opacity-60"
                     disabled={isSaving}
                     type="submit"
                   >
@@ -3071,33 +3203,70 @@ export default function EpisodeDetailPage() {
               </form>
             ) : null}
 
-            <div className="mt-6 grid gap-3">
+            <div className="order-1 mt-6 grid gap-4">
               {segments.map((segment, index) => (
                 <div
-                  className="rounded-xl bg-[#181818] p-4 ring-1 ring-zinc-900"
+                  className={`group cursor-pointer rounded-[20px] bg-[#181818] p-6 ring-1 transition duration-200 hover:-translate-y-0.5 hover:bg-[#202020] hover:ring-[#1DB954]/40 ${draggedSegmentId === segment.id ? "opacity-50 ring-[#1DB954]" : "ring-zinc-900"}`}
+                  draggable={canManageEpisode}
                   key={segment.id}
+                  onClick={() => canManageEpisode && editSegment(segment)}
+                  onDragEnd={() => setDraggedSegmentId(null)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragStart={() => setDraggedSegmentId(segment.id)}
+                  onDrop={() => {
+                    if (!draggedSegmentId || draggedSegmentId === segment.id) return;
+                    const sourceIndex = segments.findIndex((item) => item.id === draggedSegmentId);
+                    const targetIndex = segments.findIndex((item) => item.id === segment.id);
+                    if (sourceIndex < 0 || targetIndex < 0) return;
+                    const nextSegments = [...segments];
+                    const [movedSegment] = nextSegments.splice(sourceIndex, 1);
+                    nextSegments.splice(targetIndex, 0, movedSegment);
+                    setDraggedSegmentId(null);
+                    void saveSegments(nextSegments);
+                  }}
+                  onKeyDown={(event) => {
+                    if ((event.key === "Enter" || event.key === " ") && canManageEpisode) editSegment(segment);
+                  }}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-start gap-4">
+                      <GripVertical className="mt-1 shrink-0 text-zinc-600 transition group-hover:text-zinc-400" size={20} />
+                      <div className="min-w-0">
                       <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#1DB954]">
-                        Segment {index + 1}
+                        {String(index + 1).padStart(2, "0")}
                       </p>
-                      <h3 className="mt-2 truncate text-base font-semibold text-white">
+                      <h3 className="mt-2 text-lg font-semibold text-white">
                         {segment.title}
                       </h3>
+                      <p className="mt-2 line-clamp-2 text-[15px] leading-6 text-zinc-400">
+                        {segment.notes || "Ingen beskrivning ännu."}
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-zinc-500">
+                        <span className="rounded-full bg-[#111111] px-3 py-1.5">Längd: Ej angiven</span>
+                        <span className="rounded-full bg-[#111111] px-3 py-1.5 text-[#1DB954]">Status: Planerad</span>
+                      </div>
+                      </div>
                     </div>
                     {canManageEpisode ? (
                       <div className="flex shrink-0 gap-2">
                         <button
                           className="rounded-full bg-[#111111] px-3 py-2 text-xs font-bold text-zinc-300 ring-1 ring-zinc-800 transition hover:text-white"
-                          onClick={() => editSegment(segment)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            editSegment(segment);
+                          }}
                           type="button"
                         >
                           Redigera
                         </button>
                         <button
                           className="rounded-full bg-[#111111] px-3 py-2 text-xs font-bold text-zinc-400 ring-1 ring-zinc-800 transition hover:text-white"
-                          onClick={() => deleteSegment(segment.id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deleteSegment(segment.id);
+                          }}
                           type="button"
                         >
                           Ta bort
@@ -3105,25 +3274,22 @@ export default function EpisodeDetailPage() {
                       </div>
                     ) : null}
                   </div>
-                  {segment.notes ? (
-                    <p className="mt-3 text-sm leading-6 text-zinc-400">
-                      {segment.notes}
-                    </p>
-                  ) : null}
                 </div>
               ))}
             </div>
 
             {segments.length === 0 ? (
-              <p className="mt-6 rounded-xl bg-[#181818] p-5 text-sm text-zinc-500">
+              <p className="order-1 mt-6 rounded-[20px] bg-[#181818] p-8 text-center text-sm text-zinc-500">
                 Inga segment ännu.
               </p>
             ) : null}
           </article>
 
-          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-            <h2 className="text-xl font-semibold text-white sm:text-2xl">Anteckningar</h2>
+          <article className="order-5 mb-6 rounded-[20px] bg-[#111111] p-8 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+            <h2 className="text-2xl font-semibold text-white">Anteckningar</h2>
             <form className="mt-6 flex flex-col gap-4" onSubmit={saveNotes}>
+              <label className="grid text-zinc-300">
+                Anteckningar
               <textarea
                 className="min-h-72 rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
@@ -3131,9 +3297,10 @@ export default function EpisodeDetailPage() {
                 placeholder="Skriv anteckningar här."
                 value={notes}
               />
+              </label>
               {canManageEpisode ? (
                 <button
-                  className="w-fit rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition hover:bg-[#22d760] disabled:opacity-60"
+                  className="ml-auto w-fit bg-[#1DB954] px-6 text-sm font-bold text-black hover:bg-[#22d760] disabled:opacity-60"
                   disabled={isSaving}
                   type="submit"
                 >
@@ -3143,8 +3310,8 @@ export default function EpisodeDetailPage() {
             </form>
           </article>
 
-          <article className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-            <h2 className="text-xl font-semibold text-white sm:text-2xl">Checklista</h2>
+          <article className="order-4 mb-6 rounded-[20px] bg-[#111111] p-8 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+            <h2 className="text-2xl font-semibold text-white">Checklista</h2>
             <div className="mt-6 grid gap-3">
               {checklistItems.map((item) => (
                 <button
@@ -3172,8 +3339,8 @@ export default function EpisodeDetailPage() {
           </article>
         </section>
 
-        <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-          <h2 className="text-xl font-semibold text-white sm:text-2xl">
+        <section className="mb-6 rounded-[20px] bg-[#111111] p-8 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+          <h2 className="text-2xl font-semibold text-white">
             Produktion
           </h2>
 
@@ -3184,8 +3351,8 @@ export default function EpisodeDetailPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
-          <h2 className="text-xl font-semibold text-white sm:text-2xl">
+        <section className="mb-6 rounded-[20px] bg-[#111111] p-8 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
+          <h2 className="text-2xl font-semibold text-white">
             Material
           </h2>
 
@@ -3219,13 +3386,13 @@ export default function EpisodeDetailPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:p-6">
+        <section className="mb-6 rounded-[20px] bg-[#111111] p-8 shadow-xl shadow-black/20 ring-1 ring-zinc-900">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#1DB954]">
                 Publiceringscenter
               </p>
-              <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl">
+              <h2 className="mt-2 text-2xl font-semibold text-white">
                 Publicering
               </h2>
             </div>
@@ -3307,6 +3474,8 @@ export default function EpisodeDetailPage() {
                 </select>
               </label>
 
+              <label className="grid text-zinc-300">
+                Spotify-länk
               <input
                 className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
@@ -3315,6 +3484,9 @@ export default function EpisodeDetailPage() {
                 type="url"
                 value={spotifyLink}
               />
+              </label>
+              <label className="grid text-zinc-300">
+                Apple Podcasts-länk
               <input
                 className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
@@ -3323,6 +3495,9 @@ export default function EpisodeDetailPage() {
                 type="url"
                 value={applePodcastsLink}
               />
+              </label>
+              <label className="grid text-zinc-300">
+                YouTube-länk
               <input
                 className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
@@ -3331,6 +3506,9 @@ export default function EpisodeDetailPage() {
                 type="url"
                 value={youtubeLink}
               />
+              </label>
+              <label className="grid text-zinc-300">
+                TikTok-länk
               <input
                 className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
@@ -3339,6 +3517,7 @@ export default function EpisodeDetailPage() {
                 type="url"
                 value={tiktokLink}
               />
+              </label>
 
               <label className="grid gap-2">
                 <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
@@ -3362,6 +3541,8 @@ export default function EpisodeDetailPage() {
                 </select>
               </label>
 
+              <label className="grid text-zinc-300">
+                Avsnittslängd
               <input
                 className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-[#1DB954] disabled:opacity-60"
                 disabled={!canManageEpisode}
@@ -3370,9 +3551,10 @@ export default function EpisodeDetailPage() {
                 type="text"
                 value={episodeDuration}
               />
+              </label>
 
               {canManageEpisode ? (
-                <div className="flex flex-wrap gap-3 md:col-span-2">
+                <div className="flex flex-wrap justify-end gap-3 md:col-span-2">
                   <button
                     className="rounded-full bg-[#181818] px-6 py-3 text-sm font-bold text-zinc-200 ring-1 ring-zinc-800 transition hover:bg-[#202020] hover:text-white disabled:opacity-60"
                     disabled={isSaving}

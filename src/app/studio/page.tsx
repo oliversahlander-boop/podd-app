@@ -133,6 +133,7 @@ type StudioProject = {
   tracks: StudioTrack[];
   selectedTrackId: string;
   selectedClipId: string;
+  selectedClipIds: string[];
   selectionEnd: number | null;
   selectionStart: number | null;
   playheadSeconds: number;
@@ -149,7 +150,7 @@ type StudioProject = {
   isDirty: boolean;
 };
 
-type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "local" | "error";
+type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "local" | "error" | "offline";
 type ExportRange = "project" | "selection" | "track";
 type ExportBitDepth = 16 | 24 | 32;
 type ExportForm = {
@@ -163,7 +164,11 @@ type ExportForm = {
 
 type StudioProjectContextValue = {
   canEdit: boolean;
-  executeEditingCommand: (updater: (project: StudioProject) => StudioProject) => void;
+  executeEditingCommand: (
+    updater: (project: StudioProject) => StudioProject,
+    addToHistory?: boolean,
+    commandType?: string,
+  ) => void;
   inputDevices: MediaDeviceInfo[];
   members: PodcastMember[];
   outputDevices: MediaDeviceInfo[];
@@ -276,6 +281,7 @@ type StudioMediaFile = {
   durationSeconds: number;
   filename: string;
   id: string;
+  isLocal?: boolean;
   publicUrl: string;
   sampleRate: number;
   sizeBytes: number;
@@ -439,12 +445,16 @@ function studioSaveLabel(
     return "Synkfel";
   }
 
+  if (saveStatus === "offline") {
+    return "Offline";
+  }
+
   if (saveStatus === "local") {
     return "Sparat lokalt";
   }
 
   if (project.isDirty || saveStatus === "dirty") {
-    return "Sparat lokalt";
+    return "Ej sparat";
   }
 
   return "Sparat";
@@ -497,6 +507,28 @@ function isTrackType(value: string | null | undefined): value is TrackType {
 
 function isChannelMode(value: string | null | undefined): value is ChannelMode {
   return value === "mono" || value === "stereo";
+}
+
+async function attachSignedStudioFileUrls(fileRows: StudioFileRow[]) {
+  return Promise.all(
+    fileRows.map(async (file) => {
+      if (!file.file_path) return file;
+      const { data, error } = await supabase.storage
+        .from("studio-files")
+        .createSignedUrl(file.file_path, 60 * 60 * 24 * 7);
+      if (error) {
+        console.error("Kunde inte signera Studio-fil", {
+          fileId: file.id,
+          filePath: file.file_path,
+          message: error.message,
+          operation: "createSignedUrl",
+          statusCode: error.statusCode,
+        });
+        return { ...file, public_url: "" };
+      }
+      return { ...file, public_url: data.signedUrl };
+    }),
+  );
 }
 
 function toStudioTrack(row: StudioTrackRow, clips: StudioClipRow[]) {
@@ -641,6 +673,7 @@ function toStudioProject(
     remoteUpdatedAt: projectRow.updated_at,
     sampleRate: asNumber(projectRow.sample_rate, 48000),
     selectedClipId: "",
+    selectedClipIds: [],
     selectionEnd:
       projectRow.selection_end === null ? null : asNumber(projectRow.selection_end),
     selectionStart:
@@ -1438,7 +1471,11 @@ function StudioProjectProvider({
 }: {
   canEdit: boolean;
   children: ReactNode;
-  executeEditingCommand: (updater: (project: StudioProject) => StudioProject) => void;
+  executeEditingCommand: (
+    updater: (project: StudioProject) => StudioProject,
+    addToHistory?: boolean,
+    commandType?: string,
+  ) => void;
   inputDevices: MediaDeviceInfo[];
   members: PodcastMember[];
   outputDevices: MediaDeviceInfo[];
@@ -1452,7 +1489,11 @@ function StudioProjectProvider({
   function selectTrack(trackId: string) {
     setProject((currentProject) => ({
       ...currentProject,
+      selectedClipId: "",
+      selectedClipIds: [],
       selectedTrackId: trackId,
+      selectionEnd: null,
+      selectionStart: null,
     }));
   }
 
@@ -1515,6 +1556,15 @@ function getVisibleProjectDuration(project: StudioProject) {
     project.selectionStart || 0,
     project.selectionEnd || 0,
   );
+}
+
+function getSelectedClipIds(project: StudioProject | null | undefined) {
+  if (!project) return [];
+  return project.selectedClipIds?.length
+    ? project.selectedClipIds
+    : project.selectedClipId
+      ? [project.selectedClipId]
+      : [];
 }
 
 function updateClipInProject(
@@ -1610,12 +1660,17 @@ function StudioPage() {
   const [isMediaCollapsed, setIsMediaCollapsed] = useState(false);
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState(false);
+  const [isRepeatOpen, setIsRepeatOpen] = useState(false);
+  const [repeatCount, setRepeatCount] = useState(3);
+  const [repeatGap, setRepeatGap] = useState(0);
   const [mediaSearch, setMediaSearch] = useState("");
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
   const [hasMicrophonePermission, setHasMicrophonePermission] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordingSizeBytes, setRecordingSizeBytes] = useState(0);
+  const [liveWaveformPeaks, setLiveWaveformPeaks] = useState<number[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [retryRecording, setRetryRecording] =
     useState<LocalRecordingRecord | null>(null);
@@ -1629,6 +1684,9 @@ function StudioPage() {
   const versionPendingRef = useRef(false);
   const cloudSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const localMutationIdsRef = useRef<Set<string>>(new Set());
+  const uploadRecordingRef = useRef<(recording: LocalRecordingRecord) => Promise<boolean>>(
+    async () => false,
+  );
   const ignoreRealtimeUntilRef = useRef(0);
   const saveProjectVersionRef = useRef<
     (project?: StudioProject | null) => Promise<boolean>
@@ -1700,6 +1758,26 @@ function StudioPage() {
   const filteredSections = mediaSections.filter((section) =>
     section.label.toLowerCase().includes(mediaSearch.toLowerCase()),
   );
+  const studioMediaFiles = project
+    ? [
+        ...(retryRecording && !project.mediaFiles.some((file) => file.id === retryRecording.id)
+          ? [{
+              category: "recordings" as const,
+              contentType: retryRecording.mimeType,
+              createdAt: retryRecording.createdAt,
+              durationSeconds: retryRecording.duration,
+              filename: retryRecording.filename,
+              id: retryRecording.id,
+              isLocal: true,
+              publicUrl: retryRecording.objectUrl || "",
+              sampleRate: project.sampleRate,
+              sizeBytes: retryRecording.sizeBytes,
+              waveformPeaks: retryRecording.waveformPeaks,
+            }]
+          : []),
+        ...project.mediaFiles,
+      ]
+    : [];
   const mediaSectionsWithMeta = filteredSections.map((section) => {
     if (section.category === "project") {
       return {
@@ -1709,7 +1787,7 @@ function StudioPage() {
     }
 
     const count =
-      project?.mediaFiles.filter((file) => file.category === section.category).length || 0;
+      studioMediaFiles.filter((file) => file.category === section.category).length;
 
     return {
       ...section,
@@ -1914,7 +1992,7 @@ function StudioPage() {
       }).catch((localError) => {
         console.error("Kunde inte köa redigeringskommando lokalt:", localError);
       });
-      setSaveStatus("error");
+      setSaveStatus(navigator.onLine ? "error" : "offline");
       setMessage("Ändringen är sparad lokalt men inte i molnet.");
     }
   }
@@ -1941,7 +2019,7 @@ function StudioPage() {
     }
     projectRef.current = nextProject;
     setProjectState(nextProject);
-    setSaveStatus("saving");
+    setSaveStatus(navigator.onLine ? "saving" : "offline");
     const clientMutationId = createId();
     localMutationIdsRef.current.add(clientMutationId);
     void saveLocalProject(nextProject).catch((error) => {
@@ -1982,30 +2060,59 @@ function StudioPage() {
     executeEditingCommand(() => nextProject, false);
   }
 
-  function deleteSelectedClip() {
+  async function deleteSelectedClip() {
     if (!canEdit) {
       setMessage("Du har endast läsbehörighet.");
       return;
     }
-    if (!project?.selectedClipId) {
+    const currentProject = projectRef.current;
+    const selectedIds = getSelectedClipIds(currentProject);
+    if (!currentProject || selectedIds.length === 0) {
       setMessage("Välj ett ljudklipp att ta bort.");
       return;
     }
 
-    if (!window.confirm("Ta bort valt ljudklipp?")) {
+    if (!window.confirm(selectedIds.length === 1 ? "Ta bort valt ljudklipp?" : `Ta bort ${selectedIds.length} markerade ljudklipp?`)) {
       return;
     }
 
-    const clipId = project.selectedClipId;
-    executeEditingCommand((currentProject) => ({
+    const selectedIdSet = new Set(selectedIds);
+    const nextProject: StudioProject = {
       ...currentProject,
+      duration: getProjectDuration(
+        currentProject.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.filter((clip) => !selectedIdSet.has(clip.id)),
+        })),
+      ),
+      isDirty: true,
       selectedClipId: "",
+      selectedClipIds: [],
       tracks: currentProject.tracks.map((track) => ({
         ...track,
-        clips: track.clips.filter((clip) => clip.id !== clipId),
+        clips: track.clips.filter((clip) => !selectedIdSet.has(clip.id)),
       })),
-    }), true, "clip_deleted");
-    setMessage("Klippet är borttaget utan att originalfilen ändrades.");
+    };
+
+    try {
+      await saveLocalProject(nextProject);
+    } catch (error) {
+      console.error("Kunde inte spara borttagningen lokalt:", error);
+      setMessage("Det gick inte att ta bort markerat ljud.");
+      return;
+    }
+
+    undoStackRef.current = [...undoStackRef.current.slice(-49), currentProject];
+    redoStackRef.current = [];
+    projectRef.current = nextProject;
+    setProjectState(nextProject);
+    setSaveStatus("saving");
+    setMessage("Markerat ljud har tagits bort.");
+    const clientMutationId = createId();
+    localMutationIdsRef.current.add(clientMutationId);
+    cloudSaveQueueRef.current = cloudSaveQueueRef.current.then(() =>
+      persistCompletedCommand(currentProject, nextProject, "clip_deleted", clientMutationId),
+    );
   }
 
   function selectedRange(currentProject = projectRef.current) {
@@ -2038,6 +2145,7 @@ function StudioPage() {
     executeEditingCommand((projectToEdit) => ({
       ...projectToEdit,
       selectedClipId: "",
+      selectedClipIds: [],
       tracks: projectToEdit.tracks.map((track) => ({
         ...track,
         clips: track.clips.flatMap((clip) => {
@@ -2063,12 +2171,13 @@ function StudioPage() {
     const currentProject = projectRef.current;
     if (!currentProject) return;
     const range = selectedRange(currentProject);
+    const selectedIds = new Set(getSelectedClipIds(currentProject));
     const selected = currentProject.tracks
       .flatMap((track) => track.clips)
       .filter((clip) =>
         range
           ? clip.startTime < range.end && clip.startTime + clip.duration > range.start
-          : clip.id === currentProject.selectedClipId,
+          : selectedIds.has(clip.id),
       );
     clipboardRef.current = selected.map((clip) => ({ ...clip }));
     setMessage(selected.length ? "Kopierat." : "Inget klipp eller intervall är valt.");
@@ -2095,6 +2204,7 @@ function StudioPage() {
     executeEditingCommand((projectToEdit) => ({
       ...projectToEdit,
       selectedClipId: pastedClips[0]?.id || projectToEdit.selectedClipId,
+      selectedClipIds: pastedClips.map((clip) => clip.id),
       selectedTrackId: pastedClips[0]?.trackId || projectToEdit.selectedTrackId,
       tracks: projectToEdit.tracks.map((track) => ({
         ...track,
@@ -2150,21 +2260,27 @@ function StudioPage() {
         }),
       })),
     }), true, "clip_deleted");
-    setMessage(keepOnly ? "Endast markeringen behölls." : "Det markerade intervallet är borttaget.");
+    setMessage(keepOnly ? "Endast markeringen behölls." : "Markerat ljud har tagits bort.");
   }
 
   function duplicateSelectedClip() {
     const currentProject = projectRef.current;
-    const selected = currentProject?.tracks.flatMap((track) => track.clips).find((clip) => clip.id === currentProject.selectedClipId);
-    if (!selected) return setMessage("Välj ett klipp att duplicera.");
+    const selectedIds = new Set(getSelectedClipIds(currentProject));
+    const selected = currentProject?.tracks.flatMap((track) => track.clips).filter((clip) => selectedIds.has(clip.id)) || [];
+    if (selected.length === 0) return setMessage("Välj ett klipp att duplicera.");
+    const duplicates = selected.map((clip) => ({
+      ...clip,
+      id: createId(),
+      locked: false,
+      startTime: clip.startTime + clip.duration,
+    }));
     executeEditingCommand((projectToEdit) => ({
       ...projectToEdit,
+      selectedClipId: duplicates.at(-1)?.id || "",
+      selectedClipIds: duplicates.map((clip) => clip.id),
       tracks: projectToEdit.tracks.map((track) => ({
         ...track,
-        clips:
-          track.id === selected.trackId
-            ? [...track.clips, { ...selected, id: createId(), locked: false, startTime: selected.startTime + selected.duration }]
-            : track.clips,
+        clips: [...track.clips, ...duplicates.filter((clip) => clip.trackId === track.id)],
       })),
     }), true, "clip_duplicated");
     setMessage("Klippet är duplicerat.");
@@ -2176,12 +2292,22 @@ function StudioPage() {
       .flatMap((track) => track.clips)
       .find((clip) => clip.id === currentProject.selectedClipId);
     if (!selected) return setMessage("Välj ett klipp att upprepa.");
-    const countValue = window.prompt("Antal upprepningar", "3");
-    if (countValue === null) return;
-    const gapValue = window.prompt("Mellanrum mellan klipp i sekunder", "0");
-    if (gapValue === null) return;
-    const count = Math.floor(Number(countValue));
-    const gap = Number(gapValue);
+    setRepeatCount(3);
+    setRepeatGap(0);
+    setIsRepeatOpen(true);
+  }
+
+  function applyRepeatSelectedClip() {
+    const currentProject = projectRef.current;
+    const selected = currentProject?.tracks
+      .flatMap((track) => track.clips)
+      .find((clip) => clip.id === currentProject.selectedClipId);
+    if (!selected) {
+      setIsRepeatOpen(false);
+      return setMessage("Klippet finns inte längre.");
+    }
+    const count = Math.floor(repeatCount);
+    const gap = repeatGap;
     if (!Number.isFinite(count) || count < 1 || count > 100 || !Number.isFinite(gap) || gap < 0) {
       setMessage("Ange 1–100 upprepningar och ett giltigt mellanrum.");
       return;
@@ -2201,6 +2327,7 @@ function StudioPage() {
           : track,
       ),
     }), true, "clip_repeated");
+    setIsRepeatOpen(false);
     setMessage(`${count} upprepningar skapades.`);
   }
 
@@ -2236,13 +2363,37 @@ function StudioPage() {
 
   function changeSelectedGain() {
     const currentProject = projectRef.current;
-    const clip = currentProject?.tracks.flatMap((track) => track.clips).find((item) => item.id === currentProject.selectedClipId);
-    if (!clip) return setMessage("Välj ett klipp först.");
-    const value = window.prompt("Klippförstärkning", String(clip.gain));
+    const selectedIds = new Set(getSelectedClipIds(currentProject));
+    const clips = currentProject?.tracks.flatMap((track) => track.clips).filter((item) => selectedIds.has(item.id)) || [];
+    if (clips.length === 0) return setMessage("Välj ett klipp först.");
+    const value = window.prompt("Klippförstärkning", String(clips[0].gain));
     if (value === null) return;
     const gain = Number(value);
     if (!Number.isFinite(gain) || gain < 0) return setMessage("Ange en giltig förstärkning.");
-    applySelectedClipMetadata({ gain }, "Klippförstärkningen är ändrad.");
+    executeEditingCommand((projectToEdit) => ({
+      ...projectToEdit,
+      tracks: projectToEdit.tracks.map((track) => ({
+        ...track,
+        clips: track.clips.map((clip) => selectedIds.has(clip.id) && !clip.locked ? { ...clip, gain } : clip),
+      })),
+    }), true, "clip_gain_changed");
+    setMessage("Förstärkningen är ändrad för markerade klipp.");
+  }
+
+  function toggleSelectedClipsMuted() {
+    const currentProject = projectRef.current;
+    const selectedIds = new Set(getSelectedClipIds(currentProject));
+    const clips = currentProject?.tracks.flatMap((track) => track.clips).filter((clip) => selectedIds.has(clip.id)) || [];
+    if (clips.length === 0) return setMessage("Välj ljudklipp att tysta.");
+    const muted = !clips.every((clip) => clip.muted);
+    executeEditingCommand((projectToEdit) => ({
+      ...projectToEdit,
+      tracks: projectToEdit.tracks.map((track) => ({
+        ...track,
+        clips: track.clips.map((clip) => selectedIds.has(clip.id) ? { ...clip, muted } : clip),
+      })),
+    }), true, "clip_muted");
+    setMessage(muted ? "Markerade klipp är tystade." : "Markerade klipp är aktiverade.");
   }
 
   function splitAtSelectionBounds() {
@@ -2496,6 +2647,7 @@ function StudioPage() {
       updateTrackMeter(trackId, peak);
       if (performance.now() - lastWaveformPeakAtRef.current >= 500) {
         recordingWaveformPeaksRef.current.push(Number(peak.toFixed(3)));
+        setLiveWaveformPeaks([...recordingWaveformPeaksRef.current]);
         lastWaveformPeakAtRef.current = performance.now();
       }
       liveAnimationRef.current = requestAnimationFrame(tick);
@@ -2618,6 +2770,7 @@ function StudioPage() {
         runningSince: performance.now(),
       };
       recordingWaveformPeaksRef.current = [];
+      setLiveWaveformPeaks([]);
       lastWaveformPeakAtRef.current = 0;
       setRecordingSeconds(0);
       setRecordingSizeBytes(0);
@@ -3108,9 +3261,10 @@ function StudioPage() {
       }
 
       setUploadProgress(75);
-      const { data: publicUrlData } = supabase.storage
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from("studio-files")
-        .getPublicUrl(filePath);
+        .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+      if (signedUrlError) throw signedUrlError;
       const { data: fileRow, error: fileError } = await supabase
         .from("studio_files")
         .upsert({
@@ -3126,7 +3280,7 @@ function StudioPage() {
           podcast_id: currentProject.podcastId,
           project_id: currentProject.id,
           project_version: currentProject.version,
-          public_url: publicUrlData.publicUrl,
+          public_url: null,
           recorded_at: new Date().toISOString(),
           sample_rate: 48000,
           size_bytes: recording.blob.size,
@@ -3194,7 +3348,7 @@ function StudioPage() {
                         sourceFileId: (fileRow as StudioFileRow).id,
                         sourceUrl:
                           (fileRow as StudioFileRow).public_url ||
-                          publicUrlData.publicUrl,
+                          signedUrlData.signedUrl,
                         uploadStatus: "uploaded",
                       }
                     : clip,
@@ -3238,6 +3392,8 @@ function StudioPage() {
       return false;
     }
   }
+
+  uploadRecordingRef.current = uploadRecording;
 
   function stopPlayback(preservePosition = false) {
     const context = playbackContextRef.current;
@@ -3490,9 +3646,10 @@ function StudioPage() {
 
     if (uploadError) throw uploadError;
 
-    const { data: publicUrlData } = supabase.storage
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
       .from("studio-files")
-      .getPublicUrl(filePath);
+      .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+    if (signedUrlError) throw signedUrlError;
     const { data: fileRow, error: fileError } = await supabase.from("studio_files").insert({
         category: "exports",
         channel_count: 2,
@@ -3503,7 +3660,7 @@ function StudioPage() {
         filename,
         podcast_id: currentProject.podcastId,
         project_id: currentProject.id,
-        public_url: publicUrlData.publicUrl,
+        public_url: null,
         sample_rate: form.sampleRate,
         size_bytes: blob.size,
         upload_status: "uploaded",
@@ -3545,7 +3702,7 @@ function StudioPage() {
                 durationSeconds,
                 filename,
                 id: (fileRow as StudioFileRow).id,
-                publicUrl: (fileRow as StudioFileRow).public_url || publicUrlData.publicUrl,
+                publicUrl: signedUrlData.signedUrl,
                 sampleRate: form.sampleRate,
                 sizeBytes: blob.size,
                 waveformPeaks,
@@ -3617,9 +3774,10 @@ function StudioPage() {
       if (uploadError) throw uploadError;
 
       setUploadProgress(70);
-      const { data: publicUrlData } = supabase.storage
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from("studio-files")
-        .getPublicUrl(filePath);
+        .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+      if (signedUrlError) throw signedUrlError;
       const { data: fileRow, error: fileError } = await supabase
         .from("studio_files")
         .insert({
@@ -3632,7 +3790,7 @@ function StudioPage() {
           filename: file.name,
           podcast_id: currentProject.podcastId,
           project_id: currentProject.id,
-          public_url: publicUrlData.publicUrl,
+          public_url: null,
           sample_rate: sampleRate,
           size_bytes: file.size,
           upload_status: "uploaded",
@@ -3663,7 +3821,7 @@ function StudioPage() {
         name: file.name.replace(/\.[^.]+$/, ""),
         sourceFileId: (fileRow as StudioFileRow).id,
         sourceOffset: 0,
-        sourceUrl: (fileRow as StudioFileRow).public_url || publicUrlData.publicUrl,
+        sourceUrl: signedUrlData.signedUrl,
         startTime: currentProject.playheadSeconds,
         trackId: selectedTrackId,
         uploadStatus: "uploaded",
@@ -4063,11 +4221,18 @@ function StudioPage() {
 
   function seekPlayback(seconds: number) {
     if (!project) return;
-    const position = Math.min(project.duration, Math.max(0, seconds));
+    const visibleEnd = Math.max(project.duration, 60) + 30;
+    const position = Math.min(visibleEnd, Math.max(0, seconds));
     const shouldResume = isPlaying;
     stopPlayback();
     setProjectState((currentProject) =>
-      currentProject ? { ...currentProject, playheadSeconds: position } : currentProject,
+      currentProject
+        ? {
+            ...currentProject,
+            duration: Math.max(currentProject.duration, position),
+            playheadSeconds: position,
+          }
+        : currentProject,
     );
     if (shouldResume) {
       void startPlayback(position).catch((error) => {
@@ -4149,11 +4314,12 @@ function StudioPage() {
           return;
         }
 
+        const signedFileRows = await attachSignedStudioFileUrls(payload.files || []);
         const remoteProject = toStudioProject(
           payload.project,
           payload.tracks || [],
           payload.clips || [],
-          payload.files || [],
+          signedFileRows,
           payload.markers || [],
         );
         const localRecord = await getLocalProject(episodeId).catch((error) => {
@@ -4179,6 +4345,7 @@ function StudioPage() {
             markers: localProject.markers || remoteProject.markers,
             selectionEnd: localProject.selectionEnd ?? null,
             selectionStart: localProject.selectionStart ?? null,
+            selectedClipIds: getSelectedClipIds(localProject),
             tracks: localProject.tracks.map((track) => ({
               ...track,
               clips: track.clips.map((clip) => ({
@@ -4190,9 +4357,28 @@ function StudioPage() {
             version: localProject.version || remoteProject.version,
           });
           setSaveStatus("dirty");
-          setMessage("Lokal version är nyare än Supabase.");
+          setConflictServerVersion(remoteProject.version);
+          setMessage("En nyare lokal återställning hittades. Välj vilken version som ska användas.");
         } else {
-          setProjectState(remoteProject);
+          setProjectState((currentProject) => {
+            if (!currentProject || currentProject.id !== remoteProject.id) return remoteProject;
+            const availableClipIds = new Set(
+              remoteProject.tracks.flatMap((track) => track.clips.map((clip) => clip.id)),
+            );
+            const selectedClipIds = getSelectedClipIds(currentProject).filter((id) =>
+              availableClipIds.has(id),
+            );
+            return {
+              ...remoteProject,
+              selectedClipId: selectedClipIds.at(-1) || "",
+              selectedClipIds,
+              selectedTrackId: remoteProject.tracks.some(
+                (track) => track.id === currentProject.selectedTrackId,
+              )
+                ? currentProject.selectedTrackId
+                : remoteProject.selectedTrackId,
+            };
+          });
           setSaveStatus("saved");
           await saveLocalProject(remoteProject).catch((error) => {
             console.error("Kunde inte spara lokal studiokopia:", error);
@@ -4396,6 +4582,36 @@ function StudioPage() {
           if (upsertClipError) throw upsertClipError;
         }
 
+        const { data: existingMarkers, error: markerReadError } = await supabase
+          .from("studio_markers")
+          .select("id")
+          .eq("project_id", projectToSave.id);
+        if (markerReadError) throw markerReadError;
+        const nextMarkerIds = new Set(projectToSave.markers.map((marker) => marker.id));
+        const removedMarkerIds = ((existingMarkers as { id: string }[] | null) || [])
+          .map((marker) => marker.id)
+          .filter((markerId) => !nextMarkerIds.has(markerId));
+        if (removedMarkerIds.length > 0) {
+          const { error: markerDeleteError } = await supabase
+            .from("studio_markers")
+            .delete()
+            .in("id", removedMarkerIds);
+          if (markerDeleteError) throw markerDeleteError;
+        }
+        if (projectToSave.markers.length > 0) {
+          const { error: markerUpsertError } = await supabase
+            .from("studio_markers")
+            .upsert(
+              projectToSave.markers.map((marker) => ({
+                id: marker.id,
+                position_seconds: marker.positionSeconds,
+                project_id: projectToSave.id,
+                title: marker.title,
+              })),
+            );
+          if (markerUpsertError) throw markerUpsertError;
+        }
+
         const nextProject = {
           ...projectToSave,
           isDirty: false,
@@ -4417,13 +4633,35 @@ function StudioPage() {
           return;
         }
         console.error("Kunde inte spara studioprojekt:", describeStudioError(error));
-        setSaveStatus("error");
+        setSaveStatus(navigator.onLine ? "error" : "offline");
         const isConflict = isStudioVersionConflict(error);
         setMessage(isConflict ? "Projektet har ändrats av Arvid" : "Kunde inte spara i molnet");
       }
     },
     [canEdit, currentUserId],
   );
+
+  useEffect(() => {
+    function handleOffline() {
+      if (projectRef.current?.isDirty) setSaveStatus("offline");
+    }
+
+    function handleOnline() {
+      const currentProject = projectRef.current;
+      if (currentProject?.isDirty && canEdit) {
+        setSaveStatus("saving");
+        void saveStudioProject(currentProject);
+      }
+      if (retryRecording) void uploadRecordingRef.current(retryRecording);
+    }
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [canEdit, retryRecording, saveStudioProject]);
 
   async function saveProjectVersion(projectToVersion = projectRef.current) {
     if (!projectToVersion || !canEdit) return false;
@@ -4582,6 +4820,19 @@ function StudioPage() {
         return;
       }
 
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setProject((currentProject) => ({
+          ...currentProject,
+          selectedClipId: "",
+          selectedClipIds: [],
+          selectionEnd: null,
+          selectionStart: null,
+        }));
+        setMessage("Markeringen är rensad.");
+        return;
+      }
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (event.shiftKey) {
@@ -4612,11 +4863,6 @@ function StudioPage() {
         duplicateSelectedClip();
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "r") {
-        event.preventDefault();
-        repeatSelectedClip();
-        return;
-      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e") {
         event.preventDefault();
         setIsExportOpen(true);
@@ -4630,8 +4876,9 @@ function StudioPage() {
 
       if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
-        if (selectedRange()) deleteMarkedRange();
-        else deleteSelectedClip();
+        if (getSelectedClipIds(projectRef.current).length > 0) void deleteSelectedClip();
+        else if (selectedRange()) deleteMarkedRange();
+        else setMessage("Markera ljud att ta bort.");
         return;
       }
 
@@ -4654,21 +4901,6 @@ function StudioPage() {
         }
         return;
       }
-      if (event.key.toLowerCase() === "m") {
-        const currentProject = projectRef.current;
-        const selectedTrack = currentProject?.tracks.find(
-          (track) => track.id === currentProject.selectedTrackId,
-        );
-        if (selectedTrack) {
-          event.preventDefault();
-          executeEditingCommand((projectToEdit) =>
-            updateTrackInProject(projectToEdit, selectedTrack.id, {
-              muted: !selectedTrack.muted,
-            }),
-          );
-        }
-        return;
-      }
       if (event.key === "Home") {
         event.preventDefault();
         goToStart();
@@ -4680,9 +4912,10 @@ function StudioPage() {
         return;
       }
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        if (!event.shiftKey) return;
         event.preventDefault();
         const direction = event.key === "ArrowLeft" ? -1 : 1;
-        movePlayhead(direction * (event.shiftKey ? 5 : 1));
+        movePlayhead(direction * 5);
         return;
       }
 
@@ -4838,6 +5071,7 @@ function StudioPage() {
       !project ||
       !project.isDirty ||
       !canEdit ||
+      conflictServerVersion !== null ||
       isLoadingProjectRef.current
     ) {
       return;
@@ -4856,7 +5090,7 @@ function StudioPage() {
         window.clearTimeout(saveTimerRef.current);
       }
     };
-  }, [canEdit, project, saveStudioProject]);
+  }, [canEdit, conflictServerVersion, project, saveStudioProject]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -5267,7 +5501,7 @@ function StudioPage() {
               <span className="hidden min-[1600px]:inline">Markera</span>
             </span>
             <TransportButton shortcut="S" icon={Columns3} label="Dela" onClick={() => splitSelectedClipAt([project?.playheadSeconds || 0])} />
-            <TransportButton shortcut="Delete" icon={Trash2} label="Ta bort" onClick={() => selectedRange() ? deleteMarkedRange() : deleteSelectedClip()} />
+            <TransportButton shortcut="Delete" icon={Trash2} label="Ta bort" onClick={() => getSelectedClipIds(projectRef.current).length > 0 ? void deleteSelectedClip() : selectedRange() ? deleteMarkedRange() : setMessage("Markera ljud att ta bort.")} />
 
             <div className="hidden items-center gap-1 min-[1450px]:flex">
               <TransportButton shortcut="Home" icon={RotateCcw} label="Början" onClick={goToStart} />
@@ -5296,7 +5530,7 @@ function StudioPage() {
               <span className="hidden min-[1600px]:inline">Lägg till spår</span>
             </button>
 
-            <div className="relative ml-auto min-[1700px]:hidden">
+            <div className="relative ml-auto">
               <button
                 className="inline-flex h-8 items-center gap-1.5 rounded bg-[#181818] px-2 text-[11px] font-bold text-zinc-300 ring-1 ring-zinc-800 hover:text-white"
                 onClick={() => setIsMoreOpen((open) => !open)}
@@ -5315,12 +5549,24 @@ function StudioPage() {
                     { label: "Gör om", action: redoLastClipEdit },
                     { label: "Kopiera", action: copySelection },
                     { label: "Klipp ut", action: cutSelection },
+                    { label: "Klistra in", action: pasteClipboard },
                     { label: "Duplicera", action: duplicateSelectedClip },
                     { label: "Upprepa…", action: repeatSelectedClip },
+                    { label: "Dela vid markeringens gränser", action: splitAtSelectionBounds },
+                    { label: "Spela markerat intervall", action: () => playSelectedRange(false) },
+                    { label: "Byt namn på klipp", action: renameSelectedClip },
+                    { label: "Ändra förstärkning", action: changeSelectedGain },
+                    { label: "Tysta eller aktivera markerade klipp", action: toggleSelectedClipsMuted },
+                    { label: "Trimma början", action: () => trimSelectedClip("start") },
+                    { label: "Trimma slutet", action: () => trimSelectedClip("end") },
+                    { label: "Radera pågående tagning", action: () => void deleteCurrentTake() },
+                    { label: "Fäst", action: () => setMessage("Fäst är inte tillgängligt ännu.") },
                     { label: "Zooma ut", action: () => setProject((value) => ({ ...value, zoom: Math.max(80, value.zoom - 10) })) },
                     { label: "Zooma in", action: () => setProject((value) => ({ ...value, zoom: Math.min(260, value.zoom + 10) })) },
-                    { label: "Spara", action: manualSaveProject },
+                    { label: "Spara projekt", action: manualSaveProject },
                     { label: "Exportera", action: () => setIsExportOpen(true) },
+                    { label: "Kortkommandon", action: () => setIsShortcutHelpOpen(true) },
+                    { label: "Fullskärm", action: () => void document.documentElement.requestFullscreen?.() },
                   ].map((item) => (
                     <button
                       className="rounded px-3 py-2 text-left font-semibold text-zinc-300 hover:bg-[#242424] hover:text-white"
@@ -5356,7 +5602,7 @@ function StudioPage() {
                 type="button"
               >
                 <Download size={15} />
-                Export
+                Exportera
               </button>
               <button
                 className="rounded-md bg-[#181818] p-2 text-zinc-300 ring-1 ring-zinc-800 transition hover:text-white"
@@ -5390,41 +5636,6 @@ function StudioPage() {
                 <ZoomIn size={15} />
               </button>
             </div>
-            <ToolbarOverflow
-              editingActions={[
-                { label: "Dela vid markeringens gränser", onClick: splitAtSelectionBounds },
-                { label: "Spela markering", onClick: () => playSelectedRange(false) },
-                { label: loopSelection ? "Stoppa loop" : "Loopa markering", onClick: () => {
-                  if (loopSelection) {
-                    playbackLoopRef.current = false;
-                    setLoopSelection(false);
-                    stopPlayback(true);
-                    setMessage("Loop är stoppad.");
-                  } else {
-                    playSelectedRange(true);
-                  }
-                } },
-                { label: "Rensa markering", onClick: () => setProject((currentProject) => ({ ...currentProject, selectionEnd: null, selectionStart: null })) },
-                { label: "Ta bort markerat intervall", onClick: () => deleteMarkedRange(false) },
-                { label: "Behåll endast markerat", onClick: () => deleteMarkedRange(true) },
-                { label: "Kopiera", onClick: copySelection },
-                { label: "Klistra in", onClick: pasteClipboard },
-                { label: "Duplicera klipp", onClick: duplicateSelectedClip },
-                { label: "Trimma början", onClick: () => trimSelectedClip("start") },
-                { label: "Trimma slutet", onClick: () => trimSelectedClip("end") },
-                { label: "Tona in", onClick: () => applySelectedClipMetadata({ fadeIn: 1 }, "Toning in är tillagd.") },
-                { label: "Tona ut", onClick: () => applySelectedClipMetadata({ fadeOut: 1 }, "Toning ut är tillagd.") },
-                { label: "Ändra förstärkning", onClick: changeSelectedGain },
-                { label: "Lås eller lås upp klipp", onClick: () => {
-                  const clip = project?.tracks.flatMap((track) => track.clips).find((item) => item.id === project.selectedClipId);
-                  if (clip) applySelectedClipMetadata({ locked: !clip.locked }, clip.locked ? "Klippet är upplåst." : "Klippet är låst.");
-                } },
-                { label: "Byt namn på klipp", onClick: renameSelectedClip },
-              ]}
-              onDeleteRecording={deleteCurrentTake}
-              onExport={() => setIsExportOpen(true)}
-              onSaveProject={manualSaveProject}
-            />
           </nav>
 
           {message ? (
@@ -5491,7 +5702,7 @@ function StudioPage() {
 
           <section className="grid min-h-0 flex-1 bg-[#060606] [grid-template-columns:auto_minmax(0,1fr)_auto] max-[1279px]:[grid-template-columns:40px_minmax(0,1fr)_40px]">
             <MediaBrowser
-              mediaFiles={project?.mediaFiles || []}
+              mediaFiles={studioMediaFiles}
               sections={mediaSectionsWithMeta}
               onDeleteFile={deleteStudioMediaFile}
               onImportFile={importStudioMediaFile}
@@ -5513,7 +5724,19 @@ function StudioPage() {
                 </span>
               </div>
 
-              <TimelineEditor metrics={timelineMetrics} />
+              <TimelineEditor
+                liveRecording={
+                  project?.recordingStatus === "recording" || project?.recordingStatus === "paused"
+                    ? {
+                        duration: recordingSeconds,
+                        peaks: liveWaveformPeaks,
+                        startTime: recordingStartPositionRef.current,
+                        trackId: recordingTrackIdRef.current,
+                      }
+                    : null
+                }
+                metrics={timelineMetrics}
+              />
             </section>
 
             <InspectorPanel
@@ -5529,7 +5752,7 @@ function StudioPage() {
               Markörposition: {formatTimer(project?.playheadSeconds || 0)}
             </span>
             <span className="flex items-center">
-              Projektlängd: {formatTimer(project?.duration || 0)}
+              Projektlängd: {formatTimer(project ? getProjectDuration(project.tracks) : 0)}
             </span>
             <span className="flex items-center">Zoom: {project?.zoom || 120}%</span>
             <span className="flex items-center">Start: {formatTimer(Math.min(project?.selectionStart ?? 0, project?.selectionEnd ?? 0))}</span>
@@ -5540,6 +5763,52 @@ function StudioPage() {
 
         {isAddTrackOpen ? (
           <AddTrackDialog onClose={() => setIsAddTrackOpen(false)} />
+        ) : null}
+        {isShortcutHelpOpen ? (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
+            <div className="w-full max-w-lg rounded-xl border border-zinc-800 bg-[#111111] p-5 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Kortkommandon</h2>
+                <button className="rounded px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-white" onClick={() => setIsShortcutHelpOpen(false)} type="button">Stäng</button>
+              </div>
+              <div className="mt-4 grid grid-cols-[1fr_auto] gap-x-6 gap-y-2 text-sm">
+                {[
+                  ["Spela in", "R"], ["Stoppa", "Escape"], ["Pausa eller fortsätt inspelning", "P"],
+                  ["Spela eller pausa uppspelning", "Mellanslag"], ["Början", "Home"], ["Slutet", "End"],
+                  ["Bakåt 5 sekunder", "Skift + ←"], ["Framåt 5 sekunder", "Skift + →"],
+                  ["Ångra", "Cmd/Ctrl + Z"], ["Gör om", "Cmd/Ctrl + Skift + Z"], ["Kopiera", "Cmd/Ctrl + C"],
+                  ["Klipp ut", "Cmd/Ctrl + X"], ["Klistra in", "Cmd/Ctrl + V"], ["Duplicera", "Cmd/Ctrl + D"],
+                  ["Ta bort", "Delete/Backspace"], ["Dela", "S"], ["Spara", "Cmd/Ctrl + S"], ["Exportera", "Cmd/Ctrl + E"],
+                ].map(([label, shortcut]) => (
+                  <div className="contents" key={label}>
+                    <span className="text-zinc-300">{label}</span><kbd className="rounded bg-black px-2 py-1 font-mono text-xs text-[#1DB954]">{shortcut}</kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {isRepeatOpen ? (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4">
+            <form
+              className="w-full max-w-sm rounded-xl border border-zinc-800 bg-[#111111] p-5 shadow-2xl"
+              onSubmit={(event) => {
+                event.preventDefault();
+                applyRepeatSelectedClip();
+              }}
+            >
+              <h2 className="text-lg font-semibold text-white">Upprepa klipp</h2>
+              <div className="mt-4 grid gap-4">
+                <label className="grid gap-1 text-sm text-zinc-300">Antal upprepningar<input className="rounded border border-zinc-800 bg-black px-3 py-2 text-white" min={1} max={100} onChange={(event) => setRepeatCount(Number(event.target.value))} type="number" value={repeatCount} /></label>
+                <label className="grid gap-1 text-sm text-zinc-300">Mellanrum i sekunder<input className="rounded border border-zinc-800 bg-black px-3 py-2 text-white" min={0} onChange={(event) => setRepeatGap(Number(event.target.value))} step={0.1} type="number" value={repeatGap} /></label>
+                <label className="flex items-center gap-2 text-sm text-zinc-300"><input checked readOnly type="checkbox" /> Placera direkt efter originalet</label>
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <button className="rounded bg-zinc-800 px-4 py-2 text-sm font-bold text-white" onClick={() => setIsRepeatOpen(false)} type="button">Avbryt</button>
+                <button className="rounded bg-[#1DB954] px-4 py-2 text-sm font-bold text-black" type="submit">Upprepa</button>
+              </div>
+            </form>
+          </div>
         ) : null}
         {isExportOpen && project ? (
           <ExportDialog
@@ -5561,7 +5830,7 @@ function StudioPage() {
 
 function StudioShell({ children }: { children: ReactNode }) {
   return (
-    <main className="h-screen overflow-hidden bg-[#050505] text-zinc-100">
+    <main className="product-shell product-studio h-screen overflow-hidden bg-[#050505] text-zinc-100">
       {children}
     </main>
   );
@@ -5638,11 +5907,6 @@ function TransportButton({
       <span className="inline max-[1500px]:max-w-[62px] max-[1500px]:truncate max-[1280px]:max-w-[48px]">
         {label}
       </span>
-      {shortcut ? (
-        <span className="hidden rounded bg-black/40 px-1 font-mono text-[9px] text-zinc-500 min-[1600px]:inline">
-          {shortcut}
-        </span>
-      ) : null}
     </button>
   );
 }
@@ -5771,6 +6035,8 @@ function ToolbarOverflow({
   );
 }
 
+void ToolbarOverflow;
+
 function MediaBrowser({
   isCollapsed,
   mediaFiles,
@@ -5873,7 +6139,7 @@ function MediaBrowser({
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-semibold text-zinc-300">{file.filename}</span>
-                      <span className="text-zinc-600">{formatFileSize(file.sizeBytes)}</span>
+                      <span className="text-zinc-600">{formatFileSize(file.sizeBytes)}{file.isLocal ? " · Sparad lokalt" : " · Uppladdad"}</span>
                     </span>
                     <a
                       className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white"
@@ -5935,8 +6201,15 @@ function MediaBrowser({
 }
 
 function TimelineEditor({
+  liveRecording,
   metrics,
 }: {
+  liveRecording: {
+    duration: number;
+    peaks: number[];
+    startTime: number;
+    trackId: string;
+  } | null;
   metrics: {
     contentWidth: number;
     pixelsPerSecond: number;
@@ -5947,6 +6220,7 @@ function TimelineEditor({
   const { project, seekPlayback, setProject } = useStudioProject();
   const headerScrollRef = useRef<HTMLDivElement | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
+  const [boxSelection, setBoxSelection] = useState<{ bottom: number; left: number; right: number; top: number } | null>(null);
   const orderedTracks = useMemo(
     () =>
       project?.tracks
@@ -6020,13 +6294,17 @@ function TimelineEditor({
           const rect = scroller.getBoundingClientRect();
           const pointerToSeconds = (clientX: number) =>
             Math.max(0, (clientX - rect.left + scroller.scrollLeft) / metrics.pixelsPerSecond);
-          if ((event.target as HTMLElement).closest("[data-studio-ruler]")) {
+          if ((event.target as HTMLElement).closest("[data-studio-ruler], [data-studio-playhead]")) {
             scroller.setPointerCapture(pointerId);
             const updatePlayhead = (clientX: number) => {
               const seconds = pointerToSeconds(clientX);
               setProject((currentProject) => ({
                 ...currentProject,
-                playheadSeconds: Math.min(Math.max(currentProject.duration, 60), seconds),
+                duration: Math.max(currentProject.duration, seconds),
+                playheadSeconds: Math.min(
+                  Math.max(currentProject.duration, 60) + 30,
+                  seconds,
+                ),
               }));
             };
             updatePlayhead(event.clientX);
@@ -6042,11 +6320,42 @@ function TimelineEditor({
             return;
           }
           const start = Math.max(0, (event.clientX - rect.left + scroller.scrollLeft) / metrics.pixelsPerSecond);
+          const startClientX = event.clientX;
+          const startClientY = event.clientY;
+          const isClipBoxSelection = event.shiftKey;
           let moved = false;
           scroller.setPointerCapture(pointerId);
-          setProject((currentProject) => ({ ...currentProject, selectionEnd: start, selectionStart: start }));
+          setProject((currentProject) => ({
+            ...currentProject,
+            selectedClipId: isClipBoxSelection ? currentProject.selectedClipId : "",
+            selectedClipIds: isClipBoxSelection ? getSelectedClipIds(currentProject) : [],
+            selectionEnd: isClipBoxSelection ? null : start,
+            selectionStart: isClipBoxSelection ? null : start,
+          }));
           const move = (pointerEvent: PointerEvent) => {
             moved = true;
+            if (isClipBoxSelection) {
+              const left = Math.min(startClientX, pointerEvent.clientX);
+              const right = Math.max(startClientX, pointerEvent.clientX);
+              const top = Math.min(startClientY, pointerEvent.clientY);
+              const bottom = Math.max(startClientY, pointerEvent.clientY);
+              setBoxSelection({ bottom, left, right, top });
+              const intersectingIds = Array.from(
+                scroller.querySelectorAll<HTMLElement>("[data-studio-clip]"),
+              )
+                .filter((element) => {
+                  const clipRect = element.getBoundingClientRect();
+                  return clipRect.right >= left && clipRect.left <= right && clipRect.bottom >= top && clipRect.top <= bottom;
+                })
+                .map((element) => element.dataset.studioClip || "")
+                .filter(Boolean);
+              setProject((currentProject) => ({
+                ...currentProject,
+                selectedClipId: intersectingIds.at(-1) || "",
+                selectedClipIds: intersectingIds,
+              }));
+              return;
+            }
             const end = Math.max(0, (pointerEvent.clientX - rect.left + scroller.scrollLeft) / metrics.pixelsPerSecond);
             setProject((currentProject) => ({ ...currentProject, selectionEnd: end, selectionStart: start }));
           };
@@ -6054,7 +6363,19 @@ function TimelineEditor({
             scroller.removeEventListener("pointermove", move);
             scroller.removeEventListener("pointerup", up);
             if (scroller.hasPointerCapture(pointerId)) scroller.releasePointerCapture(pointerId);
-            if (moved) document.body.dataset.studioSelectionCompleted = "true";
+            setBoxSelection(null);
+            if (moved) {
+              document.body.dataset.studioSelectionCompleted = "true";
+            } else {
+              setProject((currentProject) => ({
+                ...currentProject,
+                selectedClipId: "",
+                selectedClipIds: [],
+                selectionEnd: null,
+                selectionStart: null,
+              }));
+              seekPlayback(start);
+            }
           };
           scroller.addEventListener("pointermove", move);
           scroller.addEventListener("pointerup", up, { once: true });
@@ -6066,6 +6387,17 @@ function TimelineEditor({
         }}
         ref={timelineScrollRef}
       >
+        {boxSelection ? (
+          <div
+            className="pointer-events-none fixed z-[90] border border-sky-400 bg-sky-400/15"
+            style={{
+              height: boxSelection.bottom - boxSelection.top,
+              left: boxSelection.left,
+              top: boxSelection.top,
+              width: boxSelection.right - boxSelection.left,
+            }}
+          />
+        ) : null}
         <div
           className="relative min-h-full"
           style={{
@@ -6091,12 +6423,14 @@ function TimelineEditor({
 
           <div
             data-studio-playhead
-            className="pointer-events-none absolute bottom-0 top-0 z-20 w-px bg-[#1DB954]"
+            className="group absolute bottom-0 top-0 z-30 -ml-1.5 w-3 cursor-ew-resize"
             style={{
               left: project.playheadSeconds * metrics.pixelsPerSecond,
             }}
           >
-            <span className="absolute -left-2 top-8 size-4 rotate-45 rounded-sm bg-[#1DB954]" />
+            <span className="absolute bottom-0 left-1.5 top-0 w-px bg-[#1DB954]" />
+            <span className="absolute -left-0.5 top-8 size-4 rotate-45 rounded-sm bg-[#1DB954]" />
+            <span className="absolute left-4 top-10 hidden rounded bg-black px-2 py-1 font-mono text-[10px] text-[#1DB954] group-active:block">{formatTimer(project.playheadSeconds)}</span>
           </div>
           <div
             data-studio-snap-guide
@@ -6117,6 +6451,7 @@ function TimelineEditor({
             {orderedTracks.map((track) => (
               <TrackLane
                 key={track.id}
+                liveRecording={liveRecording?.trackId === track.id ? liveRecording : null}
                 metrics={metrics}
                 track={track}
                 tracks={orderedTracks}
@@ -6297,6 +6632,9 @@ function TrackHeader({ track }: { track: StudioTrack }) {
         )
           ? ""
           : currentProject.selectedClipId,
+        selectedClipIds: getSelectedClipIds(currentProject).filter(
+          (id) => !track.clips.some((clip) => clip.id === id),
+        ),
         selectedTrackId:
           currentProject.selectedTrackId === track.id
             ? nextTracks[0]?.id || ""
@@ -6529,10 +6867,17 @@ function TrackMenu({
 }
 
 function TrackLane({
+  liveRecording,
   metrics,
   track,
   tracks,
 }: {
+  liveRecording: {
+    duration: number;
+    peaks: number[];
+    startTime: number;
+    trackId: string;
+  } | null;
   metrics: {
     contentWidth: number;
     pixelsPerSecond: number;
@@ -6564,6 +6909,7 @@ function TrackLane({
         setProject((currentProject) => ({
           ...currentProject,
           selectedClipId: "",
+          selectedClipIds: [],
           selectedTrackId: track.id,
           selectionEnd: null,
           selectionStart: null,
@@ -6574,11 +6920,34 @@ function TrackLane({
       style={{ height: track.height, width: metrics.contentWidth }}
     >
       <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(39,39,42,0.55)_1px,transparent_1px)] bg-[size:86px_100%]" />
-      {track.clips.length === 0 ? (
+      {liveRecording ? (
+        <div
+          className="pointer-events-none absolute top-4 z-10 h-[calc(100%-1.5rem)] min-w-12 overflow-hidden rounded-md border-2 border-red-500 bg-red-500/15 px-2 py-2 shadow-lg shadow-red-950/30"
+          style={{
+            left: liveRecording.startTime * metrics.pixelsPerSecond,
+            width: Math.max(48, liveRecording.duration * metrics.pixelsPerSecond),
+          }}
+        >
+          <div className="flex items-center justify-between gap-2 text-[10px] font-bold text-red-300">
+            <span>Spelar in</span>
+            <span className="font-mono">{formatTimer(liveRecording.duration)}</span>
+          </div>
+          <div className="mt-2 flex h-10 items-center gap-px overflow-hidden">
+            {summarizePeaks(liveRecording.peaks, Math.max(16, Math.floor(Math.max(48, liveRecording.duration * metrics.pixelsPerSecond) / 3))).map((peak, index) => (
+              <span
+                className="min-w-px flex-1 rounded-full bg-red-400"
+                key={`live-${index}`}
+                style={{ height: `${Math.max(6, peak * 38)}px` }}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {track.clips.length === 0 && !liveRecording ? (
         <div className="relative flex h-full items-center px-6 text-xs font-semibold text-zinc-700">
           Inga ljudklipp
         </div>
-      ) : (
+      ) : track.clips.length > 0 ? (
         track.clips.map((clip) => (
           <InteractiveClip
             clip={clip}
@@ -6588,7 +6957,7 @@ function TrackLane({
             tracks={tracks}
           />
         ))
-      )}
+      ) : null}
     </div>
   );
 }
@@ -6608,17 +6977,53 @@ function InteractiveClip({
   track: StudioTrack;
   tracks: StudioTrack[];
 }) {
-  const { canEdit, project, pushUndoSnapshot, setMessage, setProject } =
+  const { canEdit, executeEditingCommand, project, pushUndoSnapshot, setMessage, setProject } =
     useStudioProject();
   const [dragInfo, setDragInfo] = useState("");
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const frameRef = useRef<number | null>(null);
   const previousProjectRef = useRef<StudioProject | null>(null);
-  const isSelected = project?.selectedClipId === clip.id;
+  const isSelected = getSelectedClipIds(project).includes(clip.id);
   const clipWidth = Math.max(48, clip.duration * metrics.pixelsPerSecond);
   const visibleWaveformPeaks = useMemo(() => {
     const maxBars = Math.min(600, Math.max(16, Math.floor((clipWidth - 24) / 3)));
     return summarizePeaks(clip.waveformPeaks, maxBars);
   }, [clip.waveformPeaks, clipWidth]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+    };
+  }, [contextMenu]);
+
+  function deleteClipFromContextMenu() {
+    setContextMenu(null);
+    if (!canEdit) {
+      setMessage("Du har endast läsbehörighet.");
+      return;
+    }
+    if (!window.confirm(`Ta bort ljudklippet ”${clip.name}”?`)) return;
+    executeEditingCommand(
+      (currentProject) => ({
+        ...currentProject,
+        selectedClipId:
+          currentProject.selectedClipId === clip.id ? "" : currentProject.selectedClipId,
+        selectedClipIds: getSelectedClipIds(currentProject).filter((id) => id !== clip.id),
+        tracks: currentProject.tracks.map((currentTrack) => ({
+          ...currentTrack,
+          clips: currentTrack.clips.filter((currentClip) => currentClip.id !== clip.id),
+        })),
+      }),
+      true,
+      "clip_deleted",
+    );
+    setMessage("Klippet är borttaget. Originalfilen finns kvar.");
+  }
 
   function showSnapGuide(seconds: number | null) {
     const guide = document.querySelector<HTMLElement>("[data-studio-snap-guide]");
@@ -6703,6 +7108,8 @@ function InteractiveClip({
     event.preventDefault();
     event.stopPropagation();
 
+    if (event.button !== 0) return;
+
     if (!project || !canEdit) {
       setMessage("Du har endast läsbehörighet.");
       return;
@@ -6722,11 +7129,23 @@ function InteractiveClip({
     const captureTarget = event.currentTarget;
     const pointerId = event.pointerId;
     captureTarget.setPointerCapture(pointerId);
-    setProject((currentProject) => ({
-      ...currentProject,
-      selectedClipId: clip.id,
-      selectedTrackId: track.id,
-    }));
+    setProject((currentProject) => {
+      const selectedIds = getSelectedClipIds(currentProject);
+      const toggleSelection = event.shiftKey || event.metaKey || event.ctrlKey;
+      const nextSelectedIds = toggleSelection
+        ? selectedIds.includes(clip.id)
+          ? selectedIds.filter((id) => id !== clip.id)
+          : [...selectedIds, clip.id]
+        : [clip.id];
+      return {
+        ...currentProject,
+        selectedClipId: nextSelectedIds.at(-1) || "",
+        selectedClipIds: nextSelectedIds,
+        selectedTrackId: track.id,
+        selectionEnd: null,
+        selectionStart: null,
+      };
+    });
 
     function applyMove(pointerEvent: PointerEvent) {
       const deltaSeconds = (pointerEvent.clientX - startX) / metrics.pixelsPerSecond;
@@ -6790,11 +7209,32 @@ function InteractiveClip({
       }
 
       latestClip = nextClip;
-      setProject((currentProject) =>
-        mode === "move" && nextClip.trackId !== track.id
+      setProject((currentProject) => {
+        const selectedIds = getSelectedClipIds(currentProject);
+        if (mode === "move" && selectedIds.length > 1 && selectedIds.includes(clip.id)) {
+          const originals = new Map(
+            previousProjectRef.current?.tracks.flatMap((currentTrack) =>
+              currentTrack.clips.map((currentClip) => [currentClip.id, currentClip] as const),
+            ) || [],
+          );
+          const movement = nextClip.startTime - originalClip.startTime;
+          return {
+            ...currentProject,
+            tracks: currentProject.tracks.map((currentTrack) => ({
+              ...currentTrack,
+              clips: currentTrack.clips.map((currentClip) => {
+                const original = originals.get(currentClip.id);
+                return original && selectedIds.includes(currentClip.id)
+                  ? { ...currentClip, startTime: Math.max(0, original.startTime + movement) }
+                  : currentClip;
+              }),
+            })),
+          };
+        }
+        return mode === "move" && nextClip.trackId !== track.id
           ? moveClipToTrack(currentProject, clip.id, nextClip.trackId, nextClip)
-          : updateClipInProject(currentProject, clip.id, nextClip),
-      );
+          : updateClipInProject(currentProject, clip.id, nextClip);
+      });
     }
 
     function handlePointerMove(pointerEvent: PointerEvent) {
@@ -6834,6 +7274,7 @@ function InteractiveClip({
   }
 
   return (
+    <>
     <div
       data-studio-clip={clip.id}
       className={`absolute top-4 max-h-[calc(100%-1rem)] cursor-grab overflow-hidden rounded-md border bg-[#1DB954]/15 px-3 py-2 text-xs font-semibold text-white active:cursor-grabbing ${
@@ -6841,27 +7282,39 @@ function InteractiveClip({
       }`}
       onClick={(event) => {
         event.stopPropagation();
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
         setProject((currentProject) => ({
           ...currentProject,
           selectedClipId: clip.id,
+          selectedClipIds: [clip.id],
           selectedTrackId: clip.trackId,
         }));
+        setContextMenu({ x: event.clientX, y: event.clientY });
       }}
       onPointerDown={(event) => startInteraction(event, "move")}
       style={{
         left: clip.startTime * metrics.pixelsPerSecond,
         width: clipWidth,
       }}
+      title={`${clip.name} · ${formatTimer(clip.duration)}${clip.uploadStatus === "uploaded" ? " · Uppladdad" : " · Sparad lokalt"}`}
     >
       <div
-        className="absolute inset-y-0 left-0 z-20 w-2 cursor-ew-resize bg-white/10"
+        className={`absolute inset-y-0 left-0 z-20 w-2 cursor-ew-resize ${isSelected ? "bg-[#1DB954]/60" : "bg-white/10"}`}
         onPointerDown={(event) => startInteraction(event, "resize-left")}
       />
       <div
-        className="absolute inset-y-0 right-0 z-20 w-2 cursor-ew-resize bg-white/10"
+        className={`absolute inset-y-0 right-0 z-20 w-2 cursor-ew-resize ${isSelected ? "bg-[#1DB954]/60" : "bg-white/10"}`}
         onPointerDown={(event) => startInteraction(event, "resize-right")}
       />
-      <span className="relative z-10 block truncate">{clip.name}</span>
+      <span className="relative z-10 block truncate pr-1">{clip.name}</span>
+      {clipWidth >= 96 ? (
+        <span className="relative z-10 mt-0.5 block text-[10px] font-medium text-zinc-400">
+          {formatTimer(clip.duration)}
+        </span>
+      ) : null}
       {dragInfo ? (
         <span className="relative z-10 mt-1 block rounded bg-black/60 px-2 py-1 text-[10px] text-[#1DB954]">
           {dragInfo}
@@ -6876,12 +7329,32 @@ function InteractiveClip({
           />
         ))}
       </div>
-      {clip.uploadStatus !== "uploaded" ? (
-        <span className="relative z-10 mt-1 block text-[10px] text-yellow-300">
-          Ej uppladdad
+      {clip.uploadStatus !== "uploaded" && clipWidth >= 110 ? (
+        <span className="relative z-10 mt-1 block text-[10px] text-yellow-300" title="Inspelningen finns lokalt och kan laddas upp igen">
+          Sparad lokalt
         </span>
       ) : null}
     </div>
+    {contextMenu ? (
+      <div
+        className="fixed z-[100] w-52 overflow-hidden rounded-lg border border-zinc-700 bg-[#181818] p-1 text-xs shadow-2xl shadow-black/70"
+        onPointerDown={(event) => event.stopPropagation()}
+        style={{
+          left: Math.min(contextMenu.x, window.innerWidth - 220),
+          top: Math.min(contextMenu.y, window.innerHeight - 70),
+        }}
+      >
+        <button
+          className="flex w-full items-center gap-2 rounded px-3 py-2 text-left font-semibold text-red-300 hover:bg-red-500/15 hover:text-red-200"
+          onClick={deleteClipFromContextMenu}
+          type="button"
+        >
+          <Trash2 size={15} />
+          Ta bort klipp
+        </button>
+      </div>
+    ) : null}
+    </>
   );
 }
 
@@ -7317,9 +7790,11 @@ function InspectorPanel({
   const track = project?.tracks.find(
     (currentTrack) => currentTrack.id === project.selectedTrackId,
   );
-  const selectedClip = project?.tracks
+  const selectedClipIds = new Set(getSelectedClipIds(project));
+  const selectedClips = project?.tracks
     .flatMap((currentTrack) => currentTrack.clips)
-    .find((clip) => clip.id === project.selectedClipId);
+    .filter((clip) => selectedClipIds.has(clip.id)) || [];
+  const selectedClip = selectedClips.length === 1 ? selectedClips[0] : undefined;
   const assignedMember = members.find(
     (member) => member.user_id === track?.assignedUserId,
   );
@@ -7430,7 +7905,11 @@ function InspectorPanel({
                 </p>
               </section>
 
-              {selectedClip ? (
+              {selectedClips.length > 1 ? (
+                <section className="rounded border border-[#1DB954]/30 bg-[#102318] p-3 text-sm font-semibold text-[#1DB954]">
+                  {selectedClips.length} ljudklipp markerade
+                </section>
+              ) : selectedClip ? (
                 <section className="grid gap-2 border-t border-zinc-900 pt-4 text-xs">
                   <h3 className="font-bold uppercase tracking-[0.16em] text-[#1DB954]">
                     Valt ljudklipp
@@ -7471,7 +7950,11 @@ function InspectorPanel({
                     <input checked={selectedClip.locked} disabled={!canEdit} onChange={(event) => updateSelectedClip({ locked: event.target.checked })} type="checkbox" />
                   </label>
                 </section>
-              ) : null}
+              ) : (
+                <section className="border-t border-zinc-900 pt-4 text-sm text-zinc-500">
+                  Inget ljudklipp markerat
+                </section>
+              )}
 
               <section className="grid gap-3 border-t border-zinc-900 pt-4">
                 <label className="grid gap-2">

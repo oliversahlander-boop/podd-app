@@ -1,0 +1,2 @@
+import { ReactNode } from "react";
+export function EmptyState({ action, description, icon, title }: { action?: ReactNode; description?: string; icon?: ReactNode; title: string }) { return <div className="flex flex-col items-center rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] p-12 text-center">{icon}<h3 className="mt-4 font-semibold text-white">{title}</h3>{description ? <p className="mt-2 max-w-md text-sm text-zinc-500">{description}</p> : null}{action ? <div className="mt-6">{action}</div> : null}</div>; }

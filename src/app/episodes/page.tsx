@@ -7,6 +7,7 @@ import Link from "next/link";
 import { FileText, ImageIcon, MoreHorizontal, StickyNote } from "lucide-react";
 import { createNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
+import { Button, Input, Select } from "@/components/ui";
 
 type Episode = {
   id: string;
@@ -346,7 +347,7 @@ export default function EpisodesPage() {
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+    <main className="product-shell min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 sm:gap-9">
         <header className="flex flex-col gap-6 border-b border-zinc-900 pb-8 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -364,24 +365,24 @@ export default function EpisodesPage() {
 
         {canManageEpisodes ? (
           <form
-            className="grid gap-3 rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:gap-4 sm:p-5 md:grid-cols-[1fr_1fr_220px_auto]"
+            className="grid gap-3 rounded-2xl bg-[#111111] p-4 shadow-xl shadow-black/20 ring-1 ring-zinc-900 sm:grid-cols-2 sm:gap-4 sm:p-5 xl:grid-cols-[1fr_1fr_220px_auto]"
             onSubmit={createEpisode}
           >
-            <input
+            <Input
               className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
               onChange={(event) => setTitle(event.target.value)}
               placeholder="Titel"
               type="text"
               value={title}
             />
-            <input
+            <Input
               className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Beskrivning"
               type="text"
               value={description}
             />
-            <select
+            <Select
               className="rounded-xl border border-zinc-800 bg-[#181818] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#1DB954] focus:ring-2 focus:ring-[#1DB954]/10"
               onChange={(event) => setStatus(event.target.value)}
               value={status}
@@ -391,14 +392,16 @@ export default function EpisodesPage() {
                   {option}
                 </option>
               ))}
-            </select>
-            <button
+            </Select>
+            <Button
               className="rounded-full bg-[#1DB954] px-6 py-3 text-sm font-bold text-black transition duration-200 hover:scale-[1.02] hover:bg-[#22d760] disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isSaving}
+              loading={isSaving}
               type="submit"
+              variant="primary"
             >
-              {isSaving ? "Sparar" : "Skapa nästa avsnitt"}
-            </button>
+              Skapa nästa avsnitt
+            </Button>
           </form>
         ) : null}
 
@@ -408,7 +411,7 @@ export default function EpisodesPage() {
           </p>
         ) : null}
 
-        <section className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-5">
           {episodes.map((episode) => {
             const thumbnail = getThumbnail(episode.links);
             const fileCount = getFileCount(episode.links);

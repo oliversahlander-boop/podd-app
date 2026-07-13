@@ -214,7 +214,7 @@ export default function ProfilePage() {
   const label = displayName || user?.email || "Profil";
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+    <main className="product-shell min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 sm:gap-8">
         <header className="rounded-2xl bg-[#111111] p-5 shadow-2xl shadow-black/30 ring-1 ring-zinc-900 sm:p-8">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:gap-7">

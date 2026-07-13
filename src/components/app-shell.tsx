@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Home,
   Library,
+  Menu,
   SlidersHorizontal,
   Search,
   Settings,
@@ -98,6 +99,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [isLoadingPodcasts, setIsLoadingPodcasts] = useState(true);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isNotificationMenuOpen, setIsNotificationMenuOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -690,9 +692,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col overflow-x-hidden bg-[#050505] md:flex-row">
-      <aside className="hidden w-72 shrink-0 border-r border-zinc-900 bg-[#050505] px-5 py-6 md:block">
+      <aside className="hidden w-20 shrink-0 border-r border-zinc-900 bg-[#050505] px-3 py-6 md:block xl:w-72 xl:px-5">
         <Link
-          className="block px-3 text-sm font-semibold tracking-[0.22em] text-[#1DB954] uppercase"
+          className="block px-1 text-center text-xs font-semibold tracking-[0.12em] text-[#1DB954] uppercase xl:px-3 xl:text-left xl:text-sm xl:tracking-[0.22em]"
           href="/"
         >
           Podd
@@ -708,7 +710,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             href="/"
           >
             <Home size={18} strokeWidth={2} />
-            Start
+            <span className="hidden xl:inline">Start</span>
           </Link>
           <Link
             className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
@@ -719,7 +721,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             href="/episodes"
           >
             <Library size={18} strokeWidth={2} />
-            Avsnitt
+            <span className="hidden xl:inline">Avsnitt</span>
           </Link>
           <Link
             className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
@@ -730,7 +732,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             href="/material"
           >
             <FolderOpen size={18} strokeWidth={2} />
-            Material
+            <span className="hidden xl:inline">Material</span>
           </Link>
           <Link
             className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
@@ -741,7 +743,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             href="/studio"
           >
             <SlidersHorizontal size={18} strokeWidth={2} />
-            Studio
+            <span className="hidden xl:inline">Studio</span>
           </Link>
           <Link
             className={`flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition duration-200 ${
@@ -752,11 +754,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
             href="/settings"
           >
             <Settings size={18} strokeWidth={2} />
-            Inställningar
+            <span className="hidden xl:inline">Inställningar</span>
           </Link>
         </nav>
 
-        <div className="mt-10">
+        <div className="mt-10 hidden xl:block">
           <p className="px-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-600">
             Podcaster
           </p>
@@ -821,7 +823,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-30 border-b border-zinc-900 bg-[#050505]/95 px-4 py-3 backdrop-blur md:hidden">
           <div className="flex items-center justify-between gap-3">
-            <div className="relative shrink-0">
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                aria-label="Öppna meny"
+                className="flex size-10 items-center justify-center rounded-full bg-[#111111] text-zinc-300 ring-1 ring-zinc-900"
+                onClick={() => setIsMobileMenuOpen((isOpen) => !isOpen)}
+                type="button"
+              >
+                <Menu size={18} />
+              </button>
+              <div className="relative">
               <button
                 className="flex size-10 items-center justify-center rounded-full bg-[#111111] text-sm font-bold text-zinc-200 ring-1 ring-zinc-900"
                 onClick={() => setIsProfileMenuOpen((isOpen) => !isOpen)}
@@ -871,6 +882,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   </button>
                 </div>
               ) : null}
+              </div>
             </div>
 
             <div className="min-w-0 text-center">
@@ -943,6 +955,28 @@ export default function AppShell({ children }: { children: ReactNode }) {
               ) : null}
             </div>
           </div>
+
+          {isMobileMenuOpen ? (
+            <nav className="mt-3 grid grid-cols-2 gap-2 rounded-2xl bg-[#111111] p-2 ring-1 ring-zinc-900">
+              {[
+                ["/", "Start"],
+                ["/episodes", "Avsnitt"],
+                ["/material", "Material"],
+                ["/studio", "Studio"],
+                ["/settings", "Inställningar"],
+                ["/profile", "Profil"],
+              ].map(([href, label]) => (
+                <Link
+                  className="rounded-xl px-3 py-3 text-sm font-semibold text-zinc-300 transition hover:bg-[#181818] hover:text-white"
+                  href={href}
+                  key={href}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  {label}
+                </Link>
+              ))}
+            </nav>
+          ) : null}
 
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
             {podcasts.map((podcast) => {
@@ -1032,8 +1066,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="relative flex h-11 w-80 items-center gap-3 rounded-full bg-[#111111] px-4 text-zinc-500 ring-1 ring-zinc-900 transition duration-200 focus-within:ring-[#1DB954]/40">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="relative flex h-11 w-48 min-w-0 items-center gap-3 rounded-full bg-[#111111] px-4 text-zinc-500 ring-1 ring-zinc-900 transition duration-200 focus-within:ring-[#1DB954]/40 lg:w-64 xl:w-80">
               <Search size={18} strokeWidth={2} />
               <input
                 className="w-full bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-500"

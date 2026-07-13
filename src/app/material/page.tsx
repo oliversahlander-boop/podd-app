@@ -218,7 +218,7 @@ export default function MaterialPage() {
   });
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
+    <main className="product-shell min-h-screen overflow-x-hidden bg-[#050505] px-4 py-5 text-zinc-100 sm:px-10 sm:py-10 lg:px-14">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 sm:gap-9">
         <header className="flex flex-col gap-6 border-b border-zinc-900 pb-8 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -252,7 +252,7 @@ export default function MaterialPage() {
           </p>
         ) : null}
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="flex flex-wrap gap-2 pb-1">
           {filters.map((filter) => (
             <button
               className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition ${
